@@ -1,0 +1,6 @@
+{
+  "name": "LabelForge Studio - Enterprise Barcode & Label Design Platform",
+  "description": "Production-grade enterprise Windows desktop label design, barcode generation, database connectivity, and print automation workstation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
