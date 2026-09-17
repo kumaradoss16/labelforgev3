@@ -14,7 +14,8 @@ import {
   Server,
   Database,
   Layers,
-  Sparkles
+  Sparkles,
+  FileBox
 } from 'lucide-react';
 
 interface TitleBarProps {
@@ -26,9 +27,12 @@ interface TitleBarProps {
   canUndo: boolean;
   canRedo: boolean;
   onOpenPrint: () => void;
-  onOpenPrintPreview: () => void;
-  onOpenDataSources: () => void;
-  onOpenFontManager: () => void;
+  onOpenPrintPreview?: () => void;
+  onOpenDataSources?: () => void;
+  onOpenFontManager?: () => void;
+  onOpenTemplateManager?: () => void;
+  onOpen?: () => void;
+  onPrint?: () => void;
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -43,7 +47,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onOpenPrintPreview,
   onOpenDataSources,
   onOpenFontManager,
+  onOpenTemplateManager,
+  onOpen,
+  onPrint,
 }) => {
+  const handlePrint = onOpenPrint || onPrint || (() => {});
   return (
     <header className="h-9 bg-[#1e2026] text-[#c5c8ce] border-b border-[#2d3139] flex items-center justify-between px-2 select-none text-xs">
       {/* Left: Brand + Quick Access Toolbar */}
@@ -87,33 +95,48 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <div className="h-3.5 w-px bg-[#323640] mx-1" />
 
           <button
-            onClick={onOpenPrint}
+            onClick={handlePrint}
             title="Print to Thermal / Spooler (Ctrl+P)"
             className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
           >
             <Printer className="w-3.5 h-3.5 text-emerald-400" />
           </button>
-          <button
-            onClick={onOpenPrintPreview}
-            title="Print Preview & Verification"
-            className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
-          >
-            <Eye className="w-3.5 h-3.5 text-amber-400" />
-          </button>
-          <button
-            onClick={onOpenDataSources}
-            title="Database Sources & Dynamic Feeds"
-            className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
-          >
-            <Database className="w-3.5 h-3.5 text-cyan-400" />
-          </button>
-          <button
-            onClick={onOpenFontManager}
-            title="Multilingual Font Manager & Unicode Inspector"
-            className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-          </button>
+          {onOpenPrintPreview && (
+            <button
+              onClick={onOpenPrintPreview}
+              title="Print Preview & Verification"
+              className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
+            >
+              <Eye className="w-3.5 h-3.5 text-amber-400" />
+            </button>
+          )}
+          {onOpenTemplateManager && (
+            <button
+              onClick={onOpenTemplateManager}
+              title="Template Package Manager (.lforge / .btw.json)"
+              className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
+            >
+              <FileBox className="w-3.5 h-3.5 text-blue-400" />
+            </button>
+          )}
+          {onOpenDataSources && (
+            <button
+              onClick={onOpenDataSources}
+              title="Database Sources & Dynamic Feeds"
+              className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
+            >
+              <Database className="w-3.5 h-3.5 text-cyan-400" />
+            </button>
+          )}
+          {onOpenFontManager && (
+            <button
+              onClick={onOpenFontManager}
+              title="Multilingual Font Manager & Unicode Inspector"
+              className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            </button>
+          )}
         </div>
       </div>
 

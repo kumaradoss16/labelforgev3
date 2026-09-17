@@ -10,14 +10,16 @@ export type BarcodeCategory =
   | 'GS1 Standards'
   | 'Postal & Shipping'
   | 'Retail & Identification'
-  | 'Specialized';
+  | 'Specialized'
+  | 'Composite & Healthcare';
 
 export type BarcodeCapabilityStatus = 
   | 'SUPPORTED'
-  | 'PARTIAL'
+  | 'PARTIALLY_SUPPORTED'
   | 'RENDER_ONLY'
-  | 'PRINTER_CODE_ONLY'
-  | 'PLUGIN_REQUIRED';
+  | 'REQUIRES_PLUGIN'
+  | 'REQUIRES_PRINTER_CAPABILITY'
+  | 'REQUIRES_HARDWARE';
 
 export interface BarcodeSymbologyInfo {
   id: BarcodeSymbology;

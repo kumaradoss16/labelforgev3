@@ -38,6 +38,7 @@ import {
   CheckSquare
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, LabelDocument } from '../../types/label';
+import { FONT_GROUPS } from '../../services/fontFamilies';
 
 export type RibbonTab = 'home' | 'insert' | 'modify' | 'view' | 'data' | 'automation' | 'admin' | 'help';
 
@@ -242,16 +243,18 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                         onUpdateObject({ style: { ...textObj.style, fontFamily: e.target.value } });
                       }
                     }}
-                    className="bg-[#1b1d24] border border-[#3b404d] rounded px-1.5 py-0.5 text-xs text-white disabled:opacity-40 w-36 focus:outline-none focus:border-blue-500"
+                    className="bg-[#1b1d24] border border-[#3b404d] rounded px-1.5 py-0.5 text-xs text-white disabled:opacity-40 w-44 focus:outline-none focus:border-blue-500"
+                    title="Select Standard Windows TrueType (TTF) or OpenType (OTF) Font Family"
                   >
-                    <option value="Segoe UI">Segoe UI (Default)</option>
-                    <option value="IBM Plex Mono">IBM Plex Mono</option>
-                    <option value="Noto Sans Tamil">Noto Sans Tamil (தமிழ்)</option>
-                    <option value="Noto Sans Devanagari">Noto Sans Devanagari (हिन्दी)</option>
-                    <option value="Noto Sans Arabic">Noto Sans Arabic (العربية)</option>
-                    <option value="Noto Sans SC">Noto Sans SC (中文)</option>
-                    <option value="Noto Sans JP">Noto Sans JP (日本語)</option>
-                    <option value="monospace">OCR-A / Monospace</option>
+                    {FONT_GROUPS.map((group) => (
+                      <optgroup key={group.label} label={group.label} className="bg-[#181a22] text-gray-400 font-semibold">
+                        {group.fonts.map((f) => (
+                          <option key={f.family} value={f.family} className="bg-[#1e2129] text-white">
+                            {f.family} [{f.formatCode}]
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
 
                   {/* Font size */}

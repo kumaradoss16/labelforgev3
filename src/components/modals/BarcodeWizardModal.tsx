@@ -13,7 +13,7 @@ import {
   Grid
 } from 'lucide-react';
 import { BARCODE_CATALOG, parseGS1ApplicationIdentifiers, calculateGS1Modulo10, render1DBarcodeSvg, generateDataMatrixSvg } from '../../services/barcodeEngine';
-import { COMMON_GS1_AIS, BarcodeCategory } from '../../types/barcode';
+import { COMMON_GS1_AIS, BarcodeCategory, BarcodeSymbologyInfo } from '../../types/barcode';
 import { BarcodeSymbology, BarcodeStyle } from '../../types/label';
 
 interface BarcodeWizardModalProps {
@@ -55,6 +55,7 @@ export const BarcodeWizardModal: React.FC<BarcodeWizardModalProps> = ({
     'Postal & Shipping',
     'Retail & Identification',
     'Specialized',
+    'Composite & Healthcare',
   ];
 
   const filteredSymbologies = BARCODE_CATALOG.filter((item) => {
@@ -181,8 +182,16 @@ export const BarcodeWizardModal: React.FC<BarcodeWizardModalProps> = ({
                   >
                     <div className="font-semibold text-xs flex items-center justify-between">
                       <span>{item.displayName}</span>
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-950/80 text-emerald-300 font-mono">
-                        {item.status}
+                      <span className={`text-[9px] px-1 py-0.5 rounded font-mono ${
+                        item.status === 'SUPPORTED'
+                          ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'
+                          : item.status === 'PARTIALLY_SUPPORTED'
+                          ? 'bg-amber-950/80 text-amber-300 border border-amber-800/60'
+                          : item.status === 'REQUIRES_HARDWARE'
+                          ? 'bg-purple-950/80 text-purple-300 border border-purple-800/60'
+                          : 'bg-blue-950/80 text-blue-300 border border-blue-800/60'
+                      }`}>
+                        {item.status.replace(/_/g, ' ')}
                       </span>
                     </div>
                     <div className="text-[10px] text-gray-500 font-mono mt-0.5">{item.standard}</div>
@@ -243,7 +252,7 @@ export const BarcodeWizardModal: React.FC<BarcodeWizardModalProps> = ({
                 <span className="text-[9px] text-gray-400 font-mono mb-2 uppercase tracking-widest">
                   Live Vector Render Preview
                 </span>
-                {renderPreview(selectedSymbologyId, currentData)}
+                {renderPreview(selectedSymbologyId, currentData, selectedInfo)}
               </div>
             </div>
           </div>
@@ -364,7 +373,21 @@ export const BarcodeWizardModal: React.FC<BarcodeWizardModalProps> = ({
   );
 };
 
-function renderPreview(symbology: BarcodeSymbology, data: string) {
+function renderPreview(symbology: BarcodeSymbology, data: string, itemInfo?: BarcodeSymbologyInfo) {
+  if (itemInfo && itemInfo.status === 'REQUIRES_HARDWARE') {
+    return (
+      <div className="flex flex-col items-center justify-center p-3 text-center">
+        <div className="px-2.5 py-1 rounded bg-purple-100 text-purple-900 border border-purple-300 font-semibold text-xs mb-1">
+          Hardware Encoding Required
+        </div>
+        <p className="text-[11px] text-gray-600 max-w-xs">
+          Direct thermal/RFID hardware serialization. Native printer command: <strong className="font-mono">{itemInfo.nativeZPLCommand || '^WT'}</strong>
+        </p>
+        <div className="text-[10px] font-mono text-gray-500 mt-1">Payload: {data.slice(0, 32)}</div>
+      </div>
+    );
+  }
+
   if (symbology === 'qr' || symbology === 'gs1-qr') {
     return (
       <div className="flex flex-col items-center justify-center">

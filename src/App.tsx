@@ -15,13 +15,15 @@ import { DatabaseManagerModal } from './components/modals/DatabaseManagerModal';
 import { FontManagerModal } from './components/modals/FontManagerModal';
 import { WorkflowDesignerModal } from './components/modals/WorkflowDesignerModal';
 import { ShortcutsModal } from './components/modals/ShortcutsModal';
+import { TemplateManagerModal } from './components/modals/TemplateManagerModal';
 
 // Types & Services
-import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine } from './types/label';
+import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
 import { PrinterProfile, PrintJob } from './types/printer';
 import { DataSourceDefinition, SerializationCounter } from './types/database';
 import { SAMPLE_TEMPLATES, SAMPLE_PRINTERS, SAMPLE_DATA_SOURCES, SAMPLE_SERIAL_COUNTER } from './services/sampleData';
 import { runPreflightValidation } from './services/preflightValidator';
+import { createLForgePackage, parseAndValidateLForgePackage } from './services/lforgePackage';
 
 export const App: React.FC = () => {
   // Document state with undo/redo
@@ -32,6 +34,7 @@ export const App: React.FC = () => {
 
   // Selection & Tools
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+  const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [activeTool, setActiveTool] = useState<string>('select');
 
   // Ribbon Tab & Viewport Guides
@@ -71,6 +74,7 @@ export const App: React.FC = () => {
   const [isFontModalOpen, setIsFontModalOpen] = useState(false);
   const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
 
   // Notification toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -157,6 +161,28 @@ export const App: React.FC = () => {
     pushHistory({ ...document, objects: newObjects });
   };
 
+  // Selection management helpers
+  const handleSelectObject = (id: string | null) => {
+    setSelectedObjectId(id);
+    setSelectedObjectIds(id ? [id] : []);
+  };
+
+  const handleSelectObjects = (ids: string[]) => {
+    setSelectedObjectIds(ids);
+    setSelectedObjectId(ids.length > 0 ? ids[0] : null);
+  };
+
+  const handleUpdateMultipleObjects = (updates: Array<{ id: string; changes: Partial<LabelObject> }>) => {
+    const updateMap = new Map(updates.map(u => [u.id, u.changes]));
+    const newObjects = document.objects.map(obj => {
+      if (updateMap.has(obj.id)) {
+        return { ...obj, ...updateMap.get(obj.id) } as LabelObject;
+      }
+      return obj;
+    });
+    pushHistory({ ...document, objects: newObjects });
+  };
+
   const handleUpdateObjectById = (id: string, updated: Partial<LabelObject>) => {
     const newObjects = document.objects.map(obj => {
       if (obj.id === id) {
@@ -168,27 +194,53 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteObject = (id?: string) => {
-    const targetId = id || selectedObjectId;
-    if (!targetId) return;
-    const newObjects = document.objects.filter(o => o.id !== targetId);
-    if (selectedObjectId === targetId) setSelectedObjectId(null);
-    pushHistory({ ...document, objects: newObjects });
-    showToast('Object deleted');
+    if (id) {
+      const newObjects = document.objects.filter(o => o.id !== id);
+      setSelectedObjectIds(prev => prev.filter(i => i !== id));
+      if (selectedObjectId === id) setSelectedObjectId(null);
+      pushHistory({ ...document, objects: newObjects });
+      showToast('Object deleted');
+      return;
+    }
+
+    if (selectedObjectIds.length > 0) {
+      const count = selectedObjectIds.length;
+      const newObjects = document.objects.filter(o => !selectedObjectIds.includes(o.id));
+      setSelectedObjectIds([]);
+      setSelectedObjectId(null);
+      pushHistory({ ...document, objects: newObjects });
+      showToast(count > 1 ? `Deleted ${count} objects` : 'Object deleted');
+      return;
+    }
+
+    if (selectedObjectId) {
+      const newObjects = document.objects.filter(o => o.id !== selectedObjectId);
+      setSelectedObjectId(null);
+      setSelectedObjectIds([]);
+      pushHistory({ ...document, objects: newObjects });
+      showToast('Object deleted');
+    }
   };
 
   const handleDuplicateObject = () => {
-    if (!selectedObject) return;
-    const newObj: LabelObject = {
-      ...JSON.parse(JSON.stringify(selectedObject)),
-      id: `obj-${Date.now()}`,
-      name: `${selectedObject.name} (Copy)`,
-      x: selectedObject.x + 3,
-      y: selectedObject.y + 3,
-      zIndex: document.objects.length + 1,
-    };
-    pushHistory({ ...document, objects: [...document.objects, newObj] });
-    setSelectedObjectId(newObj.id);
-    showToast('Object duplicated');
+    const targetIds = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    const targets = document.objects.filter(o => targetIds.includes(o.id));
+    if (targets.length === 0) return;
+
+    const newObjs: LabelObject[] = targets.map((obj, idx) => ({
+      ...JSON.parse(JSON.stringify(obj)),
+      id: `${obj.type}-${Date.now()}-${idx}`,
+      name: `${obj.name} (Copy)`,
+      x: obj.x + 3,
+      y: obj.y + 3,
+      zIndex: document.objects.length + idx + 1,
+    }));
+
+    pushHistory({ ...document, objects: [...document.objects, ...newObjs] });
+    const newIds = newObjs.map(o => o.id);
+    setSelectedObjectIds(newIds);
+    setSelectedObjectId(newIds[0]);
+    showToast(newObjs.length > 1 ? `Duplicated ${newObjs.length} objects` : 'Object duplicated');
   };
 
   // Add Object Handlers
@@ -302,15 +354,20 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleAddMultilingualText = (text: string, fontFamily: string, direction: 'ltr' | 'rtl') => {
+  const handleAddMultilingualText = (
+    text: string,
+    fontFamily: string,
+    direction: 'ltr' | 'rtl' = 'ltr',
+    extraStyle?: Partial<TextStyle>
+  ) => {
     const newObj: TextLabelObject = {
-      id: `text-multi-${Date.now()}`,
-      name: `Multilingual (${fontFamily.split(' ')[0]})`,
+      id: `text-${Date.now()}`,
+      name: `Text (${fontFamily.split(' ')[0]})`,
       type: 'text',
       x: 10,
       y: 15,
-      width: 65,
-      height: 12,
+      width: 70,
+      height: 14,
       rotation: 0,
       zIndex: document.objects.length + 1,
       visible: true,
@@ -319,21 +376,126 @@ export const App: React.FC = () => {
       text,
       style: {
         fontFamily,
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#000000',
-        alignment: direction === 'rtl' ? 'right' : 'left',
+        fontSize: extraStyle?.fontSize || 14,
+        fontWeight: extraStyle?.fontWeight || 'bold',
+        fontStyle: extraStyle?.fontStyle || 'normal',
+        underline: extraStyle?.underline || false,
+        color: extraStyle?.color || '#000000',
+        alignment: extraStyle?.alignment || (direction === 'rtl' ? 'right' : 'left'),
         direction,
         wrap: true,
       },
     };
     pushHistory({ ...document, objects: [...document.objects, newObj] });
     setSelectedObjectId(newObj.id);
-    showToast('Inserted Unicode script element');
+    showToast(`Inserted ${fontFamily} text element`);
   };
 
-  // Alignment Helpers
-  const handleAlign = (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => {
+  const handleApplyFontToSelected = (fontFamily: string, extraStyle?: Partial<TextStyle>) => {
+    if (!selectedObjectId) return;
+    const target = document.objects.find(o => o.id === selectedObjectId);
+    if (!target || (target.type !== 'text' && target.type !== 'rich-text')) return;
+    const textTarget = target as TextLabelObject;
+    handleUpdateObject({
+      style: {
+        ...textTarget.style,
+        fontFamily,
+        ...(extraStyle || {}),
+      },
+    });
+    showToast(`Applied ${fontFamily} to selected text`);
+  };
+
+  // Alignment & Distribution Helpers (supports both single object and multi-selection groups)
+  const handleAlign = (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'distribute-h' | 'distribute-v') => {
+    const activeIds = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
+    const selectedObjs = document.objects.filter(o => activeIds.includes(o.id) && !o.locked);
+
+    // Multi-object group alignment / distribution
+    if (selectedObjs.length > 1) {
+      if (type === 'distribute-h') {
+        if (selectedObjs.length < 3) {
+          showToast('Select at least 3 objects to distribute horizontally');
+          return;
+        }
+        const sorted = [...selectedObjs].sort((a, b) => a.x - b.x);
+        const first = sorted[0];
+        const last = sorted[sorted.length - 1];
+        const totalObjWidth = sorted.slice(1, -1).reduce((sum, o) => sum + o.width, 0);
+        const availableSpace = last.x - (first.x + first.width);
+        const gap = (availableSpace - totalObjWidth) / (sorted.length - 1);
+        let currentX = first.x + first.width + gap;
+        const posMap = new Map<string, number>();
+        for (let i = 1; i < sorted.length - 1; i++) {
+          posMap.set(sorted[i].id, Math.max(0, currentX));
+          currentX += sorted[i].width + gap;
+        }
+        const newObjects = document.objects.map(obj => {
+          if (posMap.has(obj.id)) {
+            return { ...obj, x: Number(posMap.get(obj.id)!.toFixed(2)) };
+          }
+          return obj;
+        });
+        pushHistory({ ...document, objects: newObjects });
+        showToast('Distributed objects horizontally');
+        return;
+      }
+
+      if (type === 'distribute-v') {
+        if (selectedObjs.length < 3) {
+          showToast('Select at least 3 objects to distribute vertically');
+          return;
+        }
+        const sorted = [...selectedObjs].sort((a, b) => a.y - b.y);
+        const first = sorted[0];
+        const last = sorted[sorted.length - 1];
+        const totalObjHeight = sorted.slice(1, -1).reduce((sum, o) => sum + o.height, 0);
+        const availableSpace = last.y - (first.y + first.height);
+        const gap = (availableSpace - totalObjHeight) / (sorted.length - 1);
+        let currentY = first.y + first.height + gap;
+        const posMap = new Map<string, number>();
+        for (let i = 1; i < sorted.length - 1; i++) {
+          posMap.set(sorted[i].id, Math.max(0, currentY));
+          currentY += sorted[i].height + gap;
+        }
+        const newObjects = document.objects.map(obj => {
+          if (posMap.has(obj.id)) {
+            return { ...obj, y: Number(posMap.get(obj.id)!.toFixed(2)) };
+          }
+          return obj;
+        });
+        pushHistory({ ...document, objects: newObjects });
+        showToast('Distributed objects vertically');
+        return;
+      }
+
+      const minX = Math.min(...selectedObjs.map(o => o.x));
+      const maxX = Math.max(...selectedObjs.map(o => o.x + o.width));
+      const minY = Math.min(...selectedObjs.map(o => o.y));
+      const maxY = Math.max(...selectedObjs.map(o => o.y + o.height));
+      const groupCenterX = minX + (maxX - minX) / 2;
+      const groupCenterY = minY + (maxY - minY) / 2;
+
+      const newObjects = document.objects.map(obj => {
+        if (!activeIds.includes(obj.id) || obj.locked) return obj;
+        let newX = obj.x;
+        let newY = obj.y;
+
+        if (type === 'left') newX = minX;
+        else if (type === 'center') newX = groupCenterX - obj.width / 2;
+        else if (type === 'right') newX = maxX - obj.width;
+        else if (type === 'top') newY = minY;
+        else if (type === 'middle') newY = groupCenterY - obj.height / 2;
+        else if (type === 'bottom') newY = maxY - obj.height;
+
+        return { ...obj, x: Number(newX.toFixed(2)), y: Number(newY.toFixed(2)) };
+      });
+      pushHistory({ ...document, objects: newObjects });
+      showToast(`Aligned ${selectedObjs.length} objects (${type})`);
+      return;
+    }
+
+    // Single object aligned relative to label edges / printable margins
     if (!selectedObject) return;
     const labelW = document.dimensions.width;
     const labelH = document.dimensions.height;
@@ -362,38 +524,38 @@ export const App: React.FC = () => {
     handleUpdateObject({ zIndex: newZ });
   };
 
-  // Document Save / Load
+  // Document Save / Load (.lforge Package + .btw.json support)
   const handleSaveDocument = () => {
-    const json = JSON.stringify(document, null, 2);
+    const pkg = createLForgePackage(document);
+    const json = JSON.stringify(pkg, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = window.document.createElement('a');
     a.href = url;
-    a.download = `${document.name.replace(/\s+/g, '_')}.btw.json`;
+    a.download = `${document.name.replace(/\s+/g, '_')}.lforge`;
     a.click();
     URL.revokeObjectURL(url);
     setIsModified(false);
-    showToast('Label template exported to .btw.json');
+    showToast(`Template exported to ${document.name.replace(/\s+/g, '_')}.lforge (Checksum: ${pkg.manifest.checksum})`);
   };
 
   const handleOpenDocument = () => {
     const input = window.document.createElement('input');
     input.type = 'file';
-    input.accept = '.json';
+    input.accept = '.lforge,.json';
     input.onchange = (e: any) => {
       const file = e.target?.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (event) => {
-        try {
-          const parsed = JSON.parse(event.target?.result as string);
-          if (parsed.dimensions && Array.isArray(parsed.objects)) {
-            pushHistory(parsed);
-            setSelectedObjectId(null);
-            showToast(`Loaded "${parsed.name}"`);
-          }
-        } catch (err) {
-          alert('Invalid template JSON file');
+        const content = event.target?.result as string;
+        const result = parseAndValidateLForgePackage(content);
+        if (result.success && result.document) {
+          pushHistory(result.document);
+          setSelectedObjectId(null);
+          showToast(`Successfully loaded "${result.document.name}" (${result.manifest ? 'Package v' + result.manifest.schemaVersion : 'Upgraded JSON'})`);
+        } else {
+          showToast(`Failed to load package: ${result.error || 'Invalid file format'}`);
         }
       };
       reader.readAsText(file);
@@ -447,6 +609,10 @@ export const App: React.FC = () => {
         onSave={handleSaveDocument}
         onOpen={handleOpenDocument}
         onPrint={() => setIsPrintModalOpen(true)}
+        onOpenPrintPreview={() => setIsPrintModalOpen(true)}
+        onOpenDataSources={() => setIsDatabaseModalOpen(true)}
+        onOpenFontManager={() => setIsFontModalOpen(true)}
+        onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={historyPast.length > 0}
@@ -543,8 +709,15 @@ export const App: React.FC = () => {
           <DesignerCanvas
             document={document}
             selectedObjectId={selectedObjectId}
-            onSelectObject={setSelectedObjectId}
+            selectedObjectIds={selectedObjectIds}
+            onSelectObject={handleSelectObject}
+            onSelectObjects={handleSelectObjects}
             onUpdateObject={handleUpdateObject}
+            onUpdateMultipleObjects={handleUpdateMultipleObjects}
+            activeTool={activeTool}
+            setActiveTool={setActiveTool}
+            onAlign={handleAlign}
+            onDuplicateSelected={handleDuplicateObject}
             showGrid={showGrid}
             setShowGrid={setShowGrid}
             snapToGrid={snapToGrid}
@@ -602,7 +775,9 @@ export const App: React.FC = () => {
       <BottomDock
         objects={document.objects}
         selectedObjectId={selectedObjectId}
-        onSelectObject={setSelectedObjectId}
+        selectedObjectIds={selectedObjectIds}
+        onSelectObject={handleSelectObject}
+        onSelectObjects={handleSelectObjects}
         onUpdateObject={handleUpdateObjectById}
         onDeleteObject={handleDeleteObject}
         diagnostics={diagnostics}
@@ -623,7 +798,11 @@ export const App: React.FC = () => {
         setSnapToGrid={setSnapToGrid}
         showGrid={showGrid}
         setShowGrid={setShowGrid}
-        selectedObjectName={selectedObject?.name}
+        selectedObjectName={
+          selectedObjectIds.length > 1
+            ? `${selectedObjectIds.length} elements selected`
+            : selectedObject?.name
+        }
         isModified={isModified}
       />
 
@@ -673,7 +852,9 @@ export const App: React.FC = () => {
       <FontManagerModal
         isOpen={isFontModalOpen}
         onClose={() => setIsFontModalOpen(false)}
+        selectedObject={selectedObject}
         onInsertMultilingualText={handleAddMultilingualText}
+        onApplyFontToObject={handleApplyFontToSelected}
       />
 
       <WorkflowDesignerModal
@@ -684,6 +865,18 @@ export const App: React.FC = () => {
       <ShortcutsModal
         isOpen={isShortcutsModalOpen}
         onClose={() => setIsShortcutsModalOpen(false)}
+      />
+
+      <TemplateManagerModal
+        isOpen={isTemplateManagerOpen}
+        onClose={() => setIsTemplateManagerOpen(false)}
+        currentDocument={document}
+        onLoadDocument={(doc) => {
+          pushHistory(doc);
+          setSelectedObjectId(null);
+          setIsTemplateManagerOpen(false);
+          showToast(`Loaded Template Package: ${doc.name}`);
+        }}
       />
 
       {/* Notification Toast */}

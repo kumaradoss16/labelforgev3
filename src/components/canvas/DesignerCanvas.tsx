@@ -14,19 +14,40 @@ import {
   RotateCw,
   Compass,
   Sliders,
-  ChevronDown
+  ChevronDown,
+  Hand,
+  MousePointer,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignStartVertical,
+  AlignEndVertical,
+  AlignCenterVertical,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
+  Copy,
+  Layers,
+  Move
 } from 'lucide-react';
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GuideLine } from '../../types/label';
 import { DataRecord, SerializationCounter } from '../../types/database';
 import { evaluateExpression } from '../../services/dataBinding';
 import { render1DBarcodeSvg, renderQRCodeDataUrl, generateDataMatrixSvg, generatePostal4StateSvg } from '../../services/barcodeEngine';
+import { getFontCssStack } from '../../services/fontFamilies';
 import { Rulers } from './Rulers';
 
 interface DesignerCanvasProps {
   document: LabelDocument;
   selectedObjectId: string | null;
+  selectedObjectIds?: string[];
   onSelectObject: (id: string | null) => void;
+  onSelectObjects?: (ids: string[]) => void;
   onUpdateObject: (updated: Partial<LabelObject>) => void;
+  onUpdateMultipleObjects?: (updates: Array<{ id: string; changes: Partial<LabelObject> }>) => void;
+  activeTool?: string;
+  setActiveTool?: (tool: string) => void;
+  onAlign?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'distribute-h' | 'distribute-v') => void;
+  onDuplicateSelected?: () => void;
   showGrid: boolean;
   setShowGrid?: (v: boolean) => void;
   snapToGrid: boolean;
@@ -58,8 +79,15 @@ interface DesignerCanvasProps {
 export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   document: doc,
   selectedObjectId,
+  selectedObjectIds = [],
   onSelectObject,
+  onSelectObjects,
   onUpdateObject,
+  onUpdateMultipleObjects,
+  activeTool = 'select',
+  setActiveTool,
+  onAlign,
+  onDuplicateSelected,
   showGrid,
   setShowGrid,
   snapToGrid,
@@ -115,16 +143,173 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   const pasteboardWidth = Math.max(availableCanvasW * 1.5, originOffsetX * 2 + labelWidthPx + 1000);
   const pasteboardHeight = Math.max(availableCanvasH * 1.5, originOffsetY * 2 + labelHeightPx + 1000);
 
+  // Effective multi-selection state
+  const effectiveSelectedIds = selectedObjectIds.length > 0
+    ? selectedObjectIds
+    : (selectedObjectId ? [selectedObjectId] : []);
+
+  const handleSelectSingle = (id: string | null) => {
+    onSelectObject(id);
+    onSelectObjects?.(id ? [id] : []);
+  };
+
+  const handleSelectMultiple = (ids: string[]) => {
+    onSelectObjects?.(ids);
+    onSelectObject(ids.length > 0 ? ids[0] : null);
+  };
+
   // Dragging & Resizing state
   const [isDragging, setIsDragging] = useState(false);
   const [dragHandle, setDragHandle] = useState<string | null>(null);
   const [dragStart, setDragStart] = useState<{ x: number; y: number; objX: number; objY: number; objW: number; objH: number } | null>(null);
+  const [groupDragStarts, setGroupDragStarts] = useState<Record<string, { x: number; y: number }> | null>(null);
+  const [primaryDragId, setPrimaryDragId] = useState<string | null>(null);
+  const [liveDragDelta, setLiveDragDelta] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
+  // Hand Tool Panning State (Middle-click drag, Spacebar drag, or Pan Tool)
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef<{ clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const isHandModeActive = activeTool === 'pan' || isSpacePressed;
+
+  const startPanning = (clientX: number, clientY: number) => {
+    setIsPanning(true);
+    panStartRef.current = {
+      clientX,
+      clientY,
+      scrollLeft: scrollContainerRef.current?.scrollLeft || 0,
+      scrollTop: scrollContainerRef.current?.scrollTop || 0,
+    };
+  };
+
+  // Marquee Selection State
+  const [isMarquee, setIsMarquee] = useState(false);
+  const marqueeOriginRef = useRef<{
+    clientX: number;
+    clientY: number;
+    pasteboardX: number;
+    pasteboardY: number;
+    substrateMmX: number;
+    substrateMmY: number;
+    isShift: boolean;
+    initialSelectedIds: string[];
+  } | null>(null);
+
+  const [marqueeBox, setMarqueeBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    minMmX: number;
+    maxMmX: number;
+    minMmY: number;
+    maxMmY: number;
+  } | null>(null);
+
+  const startMarquee = (e: React.MouseEvent) => {
+    const container = scrollContainerRef.current;
+    const substrate = substrateRef.current;
+    if (!container || !substrate) return;
+
+    const contRect = container.getBoundingClientRect();
+    const subRect = substrate.getBoundingClientRect();
+
+    const pasteboardX = e.clientX - contRect.left + container.scrollLeft;
+    const pasteboardY = e.clientY - contRect.top + container.scrollTop;
+
+    const substrateMmX = (e.clientX - subRect.left) / pxPerMm;
+    const substrateMmY = (e.clientY - subRect.top) / pxPerMm;
+
+    const isShift = e.shiftKey || e.ctrlKey || e.metaKey;
+    marqueeOriginRef.current = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      pasteboardX,
+      pasteboardY,
+      substrateMmX,
+      substrateMmY,
+      isShift,
+      initialSelectedIds: isShift ? [...effectiveSelectedIds] : [],
+    };
+  };
 
   // Cached QR code data URLs
   const [qrCache, setQrCache] = useState<Record<string, string>>({});
   const [cursorMm, setCursorMm] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  const selectedObj = doc.objects.find(o => o.id === selectedObjectId);
+  const selectedObj = doc.objects.find(o => o.id === (effectiveSelectedIds[0] || selectedObjectId));
+
+  // Prevent browser autoscroll icon on middle click on container
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleMiddleMouseDown = (e: MouseEvent) => {
+      if (e.button === 1) {
+        e.preventDefault();
+      }
+    };
+    container.addEventListener('mousedown', handleMiddleMouseDown);
+    return () => container.removeEventListener('mousedown', handleMiddleMouseDown);
+  }, []);
+
+  // Window-level mousemove & mouseup during panning for uninterrupted fluid pan
+  useEffect(() => {
+    if (!isPanning) return;
+
+    const onWindowMouseMove = (e: MouseEvent) => {
+      if (!panStartRef.current || !scrollContainerRef.current) return;
+      const dx = e.clientX - panStartRef.current.clientX;
+      const dy = e.clientY - panStartRef.current.clientY;
+      scrollContainerRef.current.scrollLeft = panStartRef.current.scrollLeft - dx;
+      scrollContainerRef.current.scrollTop = panStartRef.current.scrollTop - dy;
+    };
+
+    const onWindowMouseUp = () => {
+      setIsPanning(false);
+      panStartRef.current = null;
+    };
+
+    window.addEventListener('mousemove', onWindowMouseMove, { passive: false });
+    window.addEventListener('mouseup', onWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onWindowMouseMove);
+      window.removeEventListener('mouseup', onWindowMouseUp);
+    };
+  }, [isPanning]);
+
+  // Spacebar toggle for momentary Hand Tool + H / V hotkeys
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (e.code === 'Space' && !e.repeat) {
+        setIsSpacePressed(true);
+      }
+      if (e.key.toLowerCase() === 'h' && !e.ctrlKey && !e.metaKey) {
+        setActiveTool?.('pan');
+      }
+      if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey) {
+        setActiveTool?.('select');
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsSpacePressed(false);
+      }
+    };
+    const handleBlur = () => {
+      setIsSpacePressed(false);
+      setIsPanning(false);
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [setActiveTool]);
 
   // Measure viewport size via ResizeObserver
   useEffect(() => {
@@ -194,10 +379,67 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
     return Number(result.toFixed(2));
   }, [snapToGrid, snapToGuides, guides]);
 
+  // Start dragging a label object or group of selected objects
+  const handleStartObjectDrag = (e: React.MouseEvent, obj: LabelObject) => {
+    if (obj.locked) return;
+    e.stopPropagation();
+
+    // Hand tool / middle-click priority
+    if (isHandModeActive || e.button === 1) {
+      startPanning(e.clientX, e.clientY);
+      return;
+    }
+    if (e.button !== 0) return;
+
+    // Shift / Ctrl click toggles object in multi-selection
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      const isAlreadySelected = effectiveSelectedIds.includes(obj.id);
+      const next = isAlreadySelected
+        ? effectiveSelectedIds.filter(id => id !== obj.id)
+        : [...effectiveSelectedIds, obj.id];
+      handleSelectMultiple(next);
+      return;
+    }
+
+    // Left click on object:
+    // If the clicked object is already in the multi-selection group, keep the group!
+    const targetIds = effectiveSelectedIds.includes(obj.id)
+      ? effectiveSelectedIds
+      : [obj.id];
+
+    if (!effectiveSelectedIds.includes(obj.id)) {
+      handleSelectMultiple([obj.id]);
+    }
+    setSelectedGuideId(null);
+
+    // Prepare group drag start positions
+    const initialMap: Record<string, { x: number; y: number }> = {};
+    doc.objects.forEach(o => {
+      if (targetIds.includes(o.id) && !o.locked) {
+        initialMap[o.id] = { x: o.x, y: o.y };
+      }
+    });
+
+    setGroupDragStarts(initialMap);
+    setPrimaryDragId(obj.id);
+    setLiveDragDelta({ dx: 0, dy: 0 });
+    setIsDragging(true);
+    setDragHandle('move');
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      objX: obj.x,
+      objY: obj.y,
+      objW: obj.width,
+      objH: obj.height,
+    });
+  };
+
   // Track mouse movements relative to label origin (0, 0 in mm)
   const handleMouseMove = (e: React.MouseEvent) => {
     const substrate = substrateRef.current;
-    if (!substrate) return;
+    const container = scrollContainerRef.current;
+    if (!substrate || !container) return;
 
     const rect = substrate.getBoundingClientRect();
     const relX = e.clientX - rect.left;
@@ -208,52 +450,147 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
     setCursorMm({ x: mmX, y: mmY });
     onCursorMove(mmX, mmY);
 
-    // Handle Dragging / Resizing
-    if (isDragging && dragStart && selectedObj && !selectedObj.locked) {
+    if (isPanning) return;
+
+    // 1. Marquee drag selection
+    if (marqueeOriginRef.current && !isDragging) {
+      const dx = e.clientX - marqueeOriginRef.current.clientX;
+      const dy = e.clientY - marqueeOriginRef.current.clientY;
+      if (Math.hypot(dx, dy) > 4) {
+        if (!isMarquee) setIsMarquee(true);
+
+        const contRect = container.getBoundingClientRect();
+        const curPasteboardX = e.clientX - contRect.left + container.scrollLeft;
+        const curPasteboardY = e.clientY - contRect.top + container.scrollTop;
+
+        const minMmX = Math.min(marqueeOriginRef.current.substrateMmX, mmX);
+        const maxMmX = Math.max(marqueeOriginRef.current.substrateMmX, mmX);
+        const minMmY = Math.min(marqueeOriginRef.current.substrateMmY, mmY);
+        const maxMmY = Math.max(marqueeOriginRef.current.substrateMmY, mmY);
+
+        setMarqueeBox({
+          left: Math.min(marqueeOriginRef.current.pasteboardX, curPasteboardX),
+          top: Math.min(marqueeOriginRef.current.pasteboardY, curPasteboardY),
+          width: Math.abs(curPasteboardX - marqueeOriginRef.current.pasteboardX),
+          height: Math.abs(curPasteboardY - marqueeOriginRef.current.pasteboardY),
+          minMmX,
+          maxMmX,
+          minMmY,
+          maxMmY,
+        });
+
+        // Real-time object intersection detection
+        const hit = doc.objects.filter(o => {
+          if (!o.visible || o.locked) return false;
+          const r = o.x + o.width;
+          const b = o.y + o.height;
+          return !(r < minMmX || o.x > maxMmX || b < minMmY || o.y > maxMmY);
+        });
+        const hitIds = hit.map(o => o.id);
+        const finalIds = marqueeOriginRef.current.isShift
+          ? Array.from(new Set([...marqueeOriginRef.current.initialSelectedIds, ...hitIds]))
+          : hitIds;
+        handleSelectMultiple(finalIds);
+      }
+      return;
+    }
+
+    // 2. Dragging & Resizing objects
+    if (isDragging && dragStart) {
       const deltaMmX = (e.clientX - dragStart.x) / pxPerMm;
       const deltaMmY = (e.clientY - dragStart.y) / pxPerMm;
 
       if (dragHandle === 'move') {
-        const newX = snap(Math.max(0, dragStart.objX + deltaMmX), true);
-        const newY = snap(Math.max(0, dragStart.objY + deltaMmY), false);
-        onUpdateObject({ x: newX, y: newY });
-      } else if (dragHandle === 'se') {
-        const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
-        const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
-        onUpdateObject({ width: newW, height: newH });
-      } else if (dragHandle === 'e') {
-        const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
-        onUpdateObject({ width: newW });
-      } else if (dragHandle === 's') {
-        const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
-        onUpdateObject({ height: newH });
-      } else if (dragHandle === 'nw') {
-        const newW = snap(Math.max(5, dragStart.objW - deltaMmX), true);
-        const newH = snap(Math.max(5, dragStart.objH - deltaMmY), false);
-        const newX = snap(dragStart.objX + (dragStart.objW - newW), true);
-        const newY = snap(dragStart.objY + (dragStart.objH - newH), false);
-        onUpdateObject({ x: newX, y: newY, width: newW, height: newH });
-      } else if (dragHandle === 'ne') {
-        const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
-        const newH = snap(Math.max(5, dragStart.objH - deltaMmY), false);
-        const newY = snap(dragStart.objY + (dragStart.objH - newH), false);
-        onUpdateObject({ y: newY, width: newW, height: newH });
-      } else if (dragHandle === 'sw') {
-        const newW = snap(Math.max(5, dragStart.objW - deltaMmX), true);
-        const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
-        const newX = snap(dragStart.objX + (dragStart.objW - newW), true);
-        onUpdateObject({ x: newX, width: newW, height: newH });
+        if (groupDragStarts && primaryDragId) {
+          const pInit = groupDragStarts[primaryDragId] || { x: dragStart.objX, y: dragStart.objY };
+          const snappedX = snap(Math.max(0, pInit.x + deltaMmX), true);
+          const snappedY = snap(Math.max(0, pInit.y + deltaMmY), false);
+          const effDx = snappedX - pInit.x;
+          const effDy = snappedY - pInit.y;
+          setLiveDragDelta({ dx: effDx, dy: effDy });
+        } else if (selectedObj && !selectedObj.locked) {
+          const newX = snap(Math.max(0, dragStart.objX + deltaMmX), true);
+          const newY = snap(Math.max(0, dragStart.objY + deltaMmY), false);
+          onUpdateObject({ x: newX, y: newY });
+        }
+      } else if (selectedObj && !selectedObj.locked) {
+        if (dragHandle === 'se') {
+          const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
+          const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
+          onUpdateObject({ width: newW, height: newH });
+        } else if (dragHandle === 'e') {
+          const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
+          onUpdateObject({ width: newW });
+        } else if (dragHandle === 's') {
+          const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
+          onUpdateObject({ height: newH });
+        } else if (dragHandle === 'nw') {
+          const newW = snap(Math.max(5, dragStart.objW - deltaMmX), true);
+          const newH = snap(Math.max(5, dragStart.objH - deltaMmY), false);
+          const newX = snap(dragStart.objX + (dragStart.objW - newW), true);
+          const newY = snap(dragStart.objY + (dragStart.objH - newH), false);
+          onUpdateObject({ x: newX, y: newY, width: newW, height: newH });
+        } else if (dragHandle === 'ne') {
+          const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
+          const newH = snap(Math.max(5, dragStart.objH - deltaMmY), false);
+          const newY = snap(dragStart.objY + (dragStart.objH - newH), false);
+          onUpdateObject({ y: newY, width: newW, height: newH });
+        } else if (dragHandle === 'sw') {
+          const newW = snap(Math.max(5, dragStart.objW - deltaMmX), true);
+          const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
+          const newX = snap(dragStart.objX + (dragStart.objW - newW), true);
+          onUpdateObject({ x: newX, width: newW, height: newH });
+        }
       }
     }
   };
 
   const handleMouseUp = () => {
+    // 1. Commit group move updates if any
+    if (isDragging && dragHandle === 'move' && groupDragStarts) {
+      if (liveDragDelta.dx !== 0 || liveDragDelta.dy !== 0) {
+        const updates = Object.keys(groupDragStarts).map(id => ({
+          id,
+          changes: {
+            x: Number(Math.max(0, groupDragStarts[id].x + liveDragDelta.dx).toFixed(2)),
+            y: Number(Math.max(0, groupDragStarts[id].y + liveDragDelta.dy).toFixed(2)),
+          },
+        }));
+        if (onUpdateMultipleObjects) {
+          onUpdateMultipleObjects(updates);
+        } else {
+          updates.forEach(u => onUpdateObject(u.changes));
+        }
+      }
+    }
+
+    // 2. Finalize marquee
+    if (isMarquee && marqueeBox) {
+      const hit = doc.objects.filter(o => {
+        if (!o.visible || o.locked) return false;
+        const r = o.x + o.width;
+        const b = o.y + o.height;
+        return !(r < marqueeBox.minMmX || o.x > marqueeBox.maxMmX || b < marqueeBox.minMmY || o.y > marqueeBox.maxMmY);
+      });
+      const hitIds = hit.map(o => o.id);
+      const finalIds = marqueeOriginRef.current?.isShift
+        ? Array.from(new Set([...(marqueeOriginRef.current?.initialSelectedIds || []), ...hitIds]))
+        : hitIds;
+      handleSelectMultiple(finalIds);
+    }
+
     setIsDragging(false);
     setDragHandle(null);
     setDragStart(null);
+    setGroupDragStarts(null);
+    setPrimaryDragId(null);
+    setLiveDragDelta({ dx: 0, dy: 0 });
+    setIsMarquee(false);
+    setMarqueeBox(null);
+    marqueeOriginRef.current = null;
   };
 
-  // Keyboard navigation & deletion
+  // Keyboard navigation & deletion (Supports both single object and multi-selected groups)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
@@ -266,34 +603,48 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
           return;
         }
 
-        if (selectedObj && !selectedObj.locked) {
+        if (effectiveSelectedIds.length > 0) {
           e.preventDefault();
           onDeleteSelected();
           return;
         }
       }
 
-      if (!selectedObj || selectedObj.locked) return;
+      if (effectiveSelectedIds.length === 0) return;
 
       const step = e.shiftKey ? 5 : 1;
-      if (e.key === 'ArrowLeft') {
+      let dx = 0;
+      let dy = 0;
+      if (e.key === 'ArrowLeft') dx = -step;
+      else if (e.key === 'ArrowRight') dx = step;
+      else if (e.key === 'ArrowUp') dy = -step;
+      else if (e.key === 'ArrowDown') dy = step;
+
+      if (dx !== 0 || dy !== 0) {
         e.preventDefault();
-        onUpdateObject({ x: Math.max(0, selectedObj.x - step) });
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        onUpdateObject({ x: selectedObj.x + step });
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        onUpdateObject({ y: Math.max(0, selectedObj.y - step) });
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        onUpdateObject({ y: selectedObj.y + step });
+        if (effectiveSelectedIds.length === 1 && selectedObj && !selectedObj.locked) {
+          onUpdateObject({
+            x: Math.max(0, Number((selectedObj.x + dx).toFixed(2))),
+            y: Math.max(0, Number((selectedObj.y + dy).toFixed(2))),
+          });
+        } else if (effectiveSelectedIds.length > 1 && onUpdateMultipleObjects) {
+          const updates = doc.objects
+            .filter(o => effectiveSelectedIds.includes(o.id) && !o.locked)
+            .map(o => ({
+              id: o.id,
+              changes: {
+                x: Math.max(0, Number((o.x + dx).toFixed(2))),
+                y: Math.max(0, Number((o.y + dy).toFixed(2))),
+              },
+            }));
+          onUpdateMultipleObjects(updates);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedObj, selectedGuideId, onUpdateObject, onDeleteSelected, onRemoveGuide]);
+  }, [effectiveSelectedIds, selectedObj, selectedGuideId, onUpdateObject, onUpdateMultipleObjects, onDeleteSelected, onRemoveGuide, doc.objects]);
 
   // Sizing Helpers: "Large the editor section to cover the working templates"
   const handleFitTemplate = () => {
@@ -486,6 +837,50 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
           </button>
         </div>
 
+        {/* Center-Right: Mode Selector (Select V vs Hand Tool H) & Multi-selection Status */}
+        <div className="flex items-center space-x-2">
+          <div className="flex items-center bg-[#222530] border border-[#313644] rounded p-0.5 space-x-0.5">
+            <button
+              onClick={() => setActiveTool?.('select')}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors ${
+                !isHandModeActive
+                  ? 'bg-blue-600 text-white font-medium shadow-xs'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
+              }`}
+              title="Select / Marquee Tool (V) - Click to select, drag on empty canvas to marquee-select multiple items"
+            >
+              <MousePointer className="w-3 h-3" />
+              <span>Select (V)</span>
+            </button>
+            <button
+              onClick={() => setActiveTool?.('pan')}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors ${
+                isHandModeActive
+                  ? 'bg-amber-600 text-white font-medium shadow-xs'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
+              }`}
+              title="Hand Pan Tool (H / Spacebar / Middle Click Drag) - Drag to pan canvas"
+            >
+              <Hand className="w-3 h-3" />
+              <span>Hand (H)</span>
+            </button>
+          </div>
+
+          {effectiveSelectedIds.length > 1 && (
+            <div className="flex items-center space-x-1 bg-blue-950/70 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded text-[11px] font-mono shadow-xs">
+              <Layers className="w-3 h-3 text-blue-400" />
+              <span>{effectiveSelectedIds.length} Selected</span>
+              <button
+                onClick={() => handleSelectSingle(null)}
+                className="ml-1 text-blue-400 hover:text-blue-100 font-bold"
+                title="Deselect all"
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Right: Zoom slider & Maximize Viewport */}
         <div className="flex items-center space-x-2">
           {/* Grid display toggle */}
@@ -583,17 +978,38 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
           onScroll={handleScroll}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
+          onMouseDown={(e) => {
+            // Middle-click (button 1) or Hand tool active -> Start Hand Panning
+            if (e.button === 1 || (e.button === 0 && isHandModeActive)) {
+              e.preventDefault();
+              startPanning(e.clientX, e.clientY);
+              return;
+            }
+            // Left click on empty canvas pasteboard -> Start Marquee selection
+            if (e.button === 0) {
+              startMarquee(e);
+            }
+          }}
           onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              onSelectObject(null);
-              setSelectedGuideId(null);
+            if (e.target === e.currentTarget && !isMarquee) {
+              if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                handleSelectSingle(null);
+                setSelectedGuideId(null);
+              }
             }
           }}
           style={{
             top: showRulers ? `${rulerThickness}px` : '0px',
             left: showRulers ? `${rulerThickness}px` : '0px',
+            cursor: isPanning
+              ? 'grabbing'
+              : isHandModeActive
+              ? 'grab'
+              : isMarquee
+              ? 'crosshair'
+              : 'default',
           }}
-          className="absolute bottom-0 right-0 overflow-auto bg-[#13151b] cursor-default"
+          className="absolute bottom-0 right-0 overflow-auto bg-[#13151b]"
         >
           {/* Spacious Pasteboard Area */}
           <div
@@ -607,6 +1023,25 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
               backgroundSize: '24px 24px',
             }}
           >
+            {/* Real-time Marquee Selection Rectangle Overlay */}
+            {isMarquee && marqueeBox && (
+              <div
+                className="absolute border border-blue-400 bg-blue-500/15 pointer-events-none z-50 rounded-xs shadow-sm"
+                style={{
+                  left: `${marqueeBox.left}px`,
+                  top: `${marqueeBox.top}px`,
+                  width: `${marqueeBox.width}px`,
+                  height: `${marqueeBox.height}px`,
+                }}
+              >
+                <div className="absolute -top-5 left-0 bg-blue-600/90 text-white text-[9px] font-mono px-1.5 py-0.5 rounded shadow whitespace-nowrap">
+                  {effectiveSelectedIds.length > 0
+                    ? `${effectiveSelectedIds.length} element${effectiveSelectedIds.length > 1 ? 's' : ''} in marquee`
+                    : 'Drag to select elements'}
+                </div>
+              </div>
+            )}
+
             {/* ================= GUIDE LINES ================= */}
             {showGuides && guides.map((guide) => {
               const isSelected = selectedGuideId === guide.id;
@@ -688,10 +1123,24 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.15)',
               }}
               className="relative overflow-hidden transition-all duration-75 select-none"
+              onMouseDown={(e) => {
+                if (e.button === 1 || (e.button === 0 && isHandModeActive)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  startPanning(e.clientX, e.clientY);
+                  return;
+                }
+                if (e.target === e.currentTarget && e.button === 0) {
+                  e.stopPropagation();
+                  startMarquee(e);
+                }
+              }}
               onClick={(e) => {
-                if (e.target === e.currentTarget) {
-                  onSelectObject(null);
-                  setSelectedGuideId(null);
+                if (e.target === e.currentTarget && !isMarquee) {
+                  if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                    handleSelectSingle(null);
+                    setSelectedGuideId(null);
+                  }
                 }
               }}
             >
@@ -725,9 +1174,12 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
               {[...doc.objects]
                 .sort((a, b) => a.zIndex - b.zIndex)
                 .map((obj) => {
-                  const isSelected = obj.id === selectedObjectId;
-                  const objXPx = obj.x * pxPerMm;
-                  const objYPx = obj.y * pxPerMm;
+                  const isSelected = effectiveSelectedIds.includes(obj.id);
+                  const isGroupDragged = groupDragStarts && groupDragStarts[obj.id] !== undefined && isDragging && dragHandle === 'move';
+                  const curX = isGroupDragged ? Math.max(0, groupDragStarts[obj.id].x + liveDragDelta.dx) : obj.x;
+                  const curY = isGroupDragged ? Math.max(0, groupDragStarts[obj.id].y + liveDragDelta.dy) : obj.y;
+                  const objXPx = curX * pxPerMm;
+                  const objYPx = curY * pxPerMm;
                   const objWPx = obj.width * pxPerMm;
                   const objHPx = obj.height * pxPerMm;
 
@@ -735,26 +1187,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                     <div
                       key={obj.id}
                       id={`obj-${obj.id}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectObject(obj.id);
-                        setSelectedGuideId(null);
-                      }}
                       onMouseDown={(e) => {
-                        if (obj.locked) return;
-                        e.stopPropagation();
-                        onSelectObject(obj.id);
-                        setSelectedGuideId(null);
-                        setIsDragging(true);
-                        setDragHandle('move');
-                        setDragStart({
-                          x: e.clientX,
-                          y: e.clientY,
-                          objX: obj.x,
-                          objY: obj.y,
-                          objW: obj.width,
-                          objH: obj.height,
-                        });
+                        handleStartObjectDrag(e, obj);
                       }}
                       style={{
                         position: 'absolute',
@@ -765,7 +1199,13 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                         transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
                         transformOrigin: 'center center',
                         zIndex: isSelected ? 99 : obj.zIndex,
-                        cursor: obj.locked ? 'default' : 'move',
+                        cursor: isPanning
+                          ? 'grabbing'
+                          : isHandModeActive
+                          ? 'grab'
+                          : obj.locked
+                          ? 'default'
+                          : 'move',
                         opacity: obj.visible ? obj.opacity : 0.2,
                       }}
                       className={`group ${isSelected ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-blue-300/60'}`}
@@ -773,8 +1213,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                       {/* Object Content Renderer */}
                       {renderObjectContent(obj, activeRecord, counter, qrCache)}
 
-                      {/* Selection Bounding Box & Resizing Handles */}
-                      {isSelected && !obj.locked && (
+                      {/* Single Object Selection Bounding Box & Resizing Handles */}
+                      {isSelected && !obj.locked && effectiveSelectedIds.length === 1 && (
                         <>
                           {/* Object Context Badge Tag */}
                           <div className="absolute -top-5 left-0 bg-blue-600 text-white text-[9px] font-medium px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap flex items-center space-x-1 pointer-events-none z-30">
@@ -826,6 +1266,150 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                     </div>
                   );
                 })}
+
+              {/* Group Bounding Box & Floating Action Bar for Multi-Selected Elements */}
+              {(() => {
+                if (effectiveSelectedIds.length <= 1) return null;
+                const selectedObjs = doc.objects.filter(o => effectiveSelectedIds.includes(o.id));
+                if (selectedObjs.length === 0) return null;
+
+                const getCurObjCoords = (o: LabelObject) => {
+                  const isGroupDragged = groupDragStarts && groupDragStarts[o.id] !== undefined && isDragging && dragHandle === 'move';
+                  const x = isGroupDragged ? Math.max(0, groupDragStarts[o.id].x + liveDragDelta.dx) : o.x;
+                  const y = isGroupDragged ? Math.max(0, groupDragStarts[o.id].y + liveDragDelta.dy) : o.y;
+                  return { x, y, right: x + o.width, bottom: y + o.height };
+                };
+
+                const coords = selectedObjs.map(getCurObjCoords);
+                const gMinX = Math.min(...coords.map(c => c.x));
+                const gMinY = Math.min(...coords.map(c => c.y));
+                const gMaxX = Math.max(...coords.map(c => c.right));
+                const gMaxY = Math.max(...coords.map(c => c.bottom));
+                const gW = gMaxX - gMinX;
+                const gH = gMaxY - gMinY;
+
+                return (
+                  <>
+                    {/* Dashed Multi-selection Group Outline with corner accents */}
+                    <div
+                      className="absolute border-2 border-dashed border-blue-500 bg-blue-500/5 pointer-events-none z-40 rounded-sm"
+                      style={{
+                        left: `${gMinX * pxPerMm}px`,
+                        top: `${gMinY * pxPerMm}px`,
+                        width: `${gW * pxPerMm}px`,
+                        height: `${gH * pxPerMm}px`,
+                      }}
+                    >
+                      <div className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-blue-600 border border-white rounded-xs" />
+                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-600 border border-white rounded-xs" />
+                      <div className="absolute -bottom-1 -left-1 w-2.5 h-2.5 bg-blue-600 border border-white rounded-xs" />
+                      <div className="absolute -bottom-1 -right-1 w-2.5 h-2.5 bg-blue-600 border border-white rounded-xs" />
+                    </div>
+
+                    {/* Floating Group Action Bar */}
+                    <div
+                      className="absolute pointer-events-auto z-50 bg-[#171922] border border-blue-500/60 shadow-2xl rounded-md px-2 py-1 flex items-center space-x-1.5 backdrop-blur text-xs"
+                      style={{
+                        left: `${Math.max(4, gMinX * pxPerMm)}px`,
+                        top: `${Math.max(4, gMinY * pxPerMm - 36)}px`,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center space-x-1 text-[11px] font-bold text-blue-300 pr-1.5 border-r border-[#323746]">
+                        <Layers className="w-3.5 h-3.5 text-blue-400" />
+                        <span>{selectedObjs.length} Selected</span>
+                      </div>
+
+                      {/* Align Group Actions */}
+                      <div className="flex items-center space-x-0.5">
+                        <button
+                          onClick={() => onAlign?.('left')}
+                          className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                          title="Align Left (Group)"
+                        >
+                          <AlignLeft className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onAlign?.('center')}
+                          className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                          title="Align Center Horizontally (Group)"
+                        >
+                          <AlignCenter className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onAlign?.('right')}
+                          className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                          title="Align Right (Group)"
+                        >
+                          <AlignRight className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="w-[1px] h-3.5 bg-[#323746]" />
+                        <button
+                          onClick={() => onAlign?.('top')}
+                          className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                          title="Align Top (Group)"
+                        >
+                          <AlignStartVertical className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onAlign?.('middle')}
+                          className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                          title="Align Middle Vertically (Group)"
+                        >
+                          <AlignCenterVertical className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onAlign?.('bottom')}
+                          className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                          title="Align Bottom (Group)"
+                        >
+                          <AlignEndVertical className="w-3.5 h-3.5" />
+                        </button>
+                        {selectedObjs.length >= 3 && (
+                          <>
+                            <div className="w-[1px] h-3.5 bg-[#323746]" />
+                            <button
+                              onClick={() => onAlign?.('distribute-h')}
+                              className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                              title="Distribute Horizontally"
+                            >
+                              <AlignHorizontalDistributeCenter className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => onAlign?.('distribute-v')}
+                              className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white"
+                              title="Distribute Vertically"
+                            >
+                              <AlignVerticalDistributeCenter className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="w-[1px] h-3.5 bg-[#323746]" />
+
+                      {/* Duplicate & Delete Group Actions */}
+                      {onDuplicateSelected && (
+                        <button
+                          onClick={onDuplicateSelected}
+                          className="p-1 rounded hover:bg-[#2b303f] text-gray-300 hover:text-white"
+                          title="Duplicate Group (Ctrl+D)"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={onDeleteSelected}
+                        className="p-1 rounded hover:bg-red-600/30 text-red-400 hover:text-red-200"
+                        title="Delete Selected Elements (Del)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -850,7 +1434,7 @@ function renderObjectContent(
     return (
       <div
         style={{
-          fontFamily: textObj.style.fontFamily || 'Segoe UI',
+          fontFamily: getFontCssStack(textObj.style.fontFamily),
           fontSize: `${textObj.style.fontSize}pt`,
           fontWeight: textObj.style.fontWeight || 'normal',
           fontStyle: textObj.style.fontStyle || 'normal',

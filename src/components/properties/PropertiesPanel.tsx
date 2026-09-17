@@ -13,11 +13,20 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  FileText
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject } from '../../types/label';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { BARCODE_CATALOG } from '../../services/barcodeEngine';
+import { FONT_GROUPS, getFontDefinition } from '../../services/fontFamilies';
 
 interface PropertiesPanelProps {
   selectedObject: LabelObject | null;
@@ -321,6 +330,191 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 >
                   {'{{DATE}}'}
                 </button>
+              </div>
+            </div>
+
+            {/* Font Family (Standard Windows TTF & OTF) */}
+            <div>
+              <div className="flex items-center justify-between mb-0.5">
+                <label className="text-[10px] text-gray-400">Font Family</label>
+                {(() => {
+                  const fontDef = getFontDefinition(textObj.style.fontFamily);
+                  return (
+                    <span
+                      className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${
+                        fontDef.formatCode === 'TTF'
+                          ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                          : 'bg-purple-950 text-purple-300 border border-purple-800'
+                      }`}
+                    >
+                      {fontDef.format}
+                    </span>
+                  );
+                })()}
+              </div>
+              <select
+                value={textObj.style.fontFamily || 'Segoe UI'}
+                onChange={(e) =>
+                  onUpdateObject({ style: { ...textObj.style, fontFamily: e.target.value } })
+                }
+                className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+              >
+                {FONT_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label} className="bg-[#181a22] text-gray-400 font-semibold">
+                    {group.fonts.map((f) => (
+                      <option key={f.family} value={f.family} className="bg-[#1e2129] text-white">
+                        {f.family} [{f.formatCode}]
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {(() => {
+                const fontDef = getFontDefinition(textObj.style.fontFamily);
+                return (
+                  <div className="mt-1 text-[10px] text-gray-400 bg-[#16181f] p-1.5 rounded border border-[#2b303d] space-y-0.5">
+                    <div className="text-gray-300 font-medium">{fontDef.description}</div>
+                    <div className="text-[9px] text-gray-500 flex items-center justify-between">
+                      <span>{fontDef.windowsStandard}</span>
+                      <span className="font-mono text-cyan-400">{fontDef.categoryLabel}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Typography Formatting Toolbar */}
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-0.5">Style &amp; Alignment</label>
+              <div className="flex items-center justify-between bg-[#16181f] border border-[#373c49] rounded p-0.5">
+                <div className="flex items-center space-x-0.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: {
+                          ...textObj.style,
+                          fontWeight: textObj.style.fontWeight === 'bold' ? 'normal' : 'bold',
+                        },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      textObj.style.fontWeight === 'bold'
+                        ? 'bg-blue-600 text-white font-bold'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Bold"
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: {
+                          ...textObj.style,
+                          fontStyle: textObj.style.fontStyle === 'italic' ? 'normal' : 'italic',
+                        },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      textObj.style.fontStyle === 'italic'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Italic"
+                  >
+                    <Italic className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: {
+                          ...textObj.style,
+                          underline: !textObj.style.underline,
+                        },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      textObj.style.underline
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Underline"
+                  >
+                    <Underline className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="w-[1px] h-3.5 bg-[#323746]" />
+
+                <div className="flex items-center space-x-0.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: { ...textObj.style, alignment: 'left' },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      (!textObj.style.alignment || textObj.style.alignment === 'left')
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Align Left"
+                  >
+                    <AlignLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: { ...textObj.style, alignment: 'center' },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      textObj.style.alignment === 'center'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Align Center"
+                  >
+                    <AlignCenter className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: { ...textObj.style, alignment: 'right' },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      textObj.style.alignment === 'right'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Align Right"
+                  >
+                    <AlignRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onUpdateObject({
+                        style: { ...textObj.style, alignment: 'justify' },
+                      })
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      textObj.style.alignment === 'justify'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-[#282d38]'
+                    }`}
+                    title="Justify"
+                  >
+                    <AlignJustify className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
 

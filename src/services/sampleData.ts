@@ -90,6 +90,23 @@ export const SAMPLE_PRINTERS: PrinterProfile[] = [
     darkness: 10,
     speed: 10,
     mediaType: 'continuous',
+  },
+  {
+    id: 'prn-05',
+    name: 'Zebra LP 2844 Desktop (203 DPI)',
+    model: 'LP 2844-Z',
+    manufacturer: 'Zebra',
+    dpi: 203,
+    language: 'EPL',
+    connection: 'USB',
+    address: 'USB001 (Eltron EPL2)',
+    status: 'Ready',
+    supportsCutter: false,
+    supportsPeeler: false,
+    supportsRfid: false,
+    darkness: 10,
+    speed: 3,
+    mediaType: 'gap',
   }
 ];
 

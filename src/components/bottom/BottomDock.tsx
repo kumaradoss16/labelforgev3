@@ -21,7 +21,9 @@ import { DataSourceDefinition } from '../../types/database';
 interface BottomDockProps {
   objects: LabelObject[];
   selectedObjectId: string | null;
+  selectedObjectIds?: string[];
   onSelectObject: (id: string | null) => void;
+  onSelectObjects?: (ids: string[]) => void;
   onUpdateObject: (id: string, updated: Partial<LabelObject>) => void;
   onDeleteObject: (id: string) => void;
   diagnostics: PreflightDiagnostic[];
@@ -33,7 +35,9 @@ interface BottomDockProps {
 export const BottomDock: React.FC<BottomDockProps> = ({
   objects,
   selectedObjectId,
+  selectedObjectIds = [],
   onSelectObject,
+  onSelectObjects,
   onUpdateObject,
   onDeleteObject,
   diagnostics,
@@ -41,6 +45,7 @@ export const BottomDock: React.FC<BottomDockProps> = ({
   activeRecordIndex,
   onSelectRecordIndex,
 }) => {
+  const effectiveSelectedIds = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
   const [activeTab, setActiveTab] = useState<'layers' | 'preflight' | 'data'>('layers');
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -117,11 +122,23 @@ export const BottomDock: React.FC<BottomDockProps> = ({
                   .slice()
                   .reverse()
                   .map((obj) => {
-                    const isSelected = obj.id === selectedObjectId;
+                    const isSelected = effectiveSelectedIds.includes(obj.id);
                     return (
                       <div
                         key={obj.id}
-                        onClick={() => onSelectObject(obj.id)}
+                        onClick={(e) => {
+                          if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                            const next = isSelected
+                              ? effectiveSelectedIds.filter(id => id !== obj.id)
+                              : [...effectiveSelectedIds, obj.id];
+                            onSelectObjects?.(next);
+                            if (next.length === 0) onSelectObject(null);
+                            else if (!isSelected) onSelectObject(obj.id);
+                          } else {
+                            onSelectObject(obj.id);
+                            onSelectObjects?.([obj.id]);
+                          }
+                        }}
                         className={`flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors ${
                           isSelected ? 'bg-blue-600/30 border border-blue-500/50 text-white' : 'hover:bg-[#222631] text-gray-300'
                         }`}

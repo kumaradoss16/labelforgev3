@@ -17,7 +17,7 @@ import { LabelDocument } from '../../types/label';
 import { PrinterProfile, PrintJob } from '../../types/printer';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { generateZplFromDocument } from '../../services/zplGenerator';
-import { generateTsplFromDocument } from '../../services/tsplGenerator';
+import { generateTsplFromDocument, generateEplFromDocument } from '../../services/tsplGenerator';
 import { runPreflightValidation } from '../../services/preflightValidator';
 
 interface PrintModalProps {
@@ -63,6 +63,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const generatedCode =
     activePrinter.language === 'TSPL'
       ? generateTsplFromDocument(doc, { copies, darkness, speed })
+      : activePrinter.language === 'EPL'
+      ? generateEplFromDocument(doc, { copies, darkness, speed })
       : generateZplFromDocument(doc, { copies, darkness, speed });
 
   const totalRecordsToPrint =
@@ -108,7 +110,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   };
 
   const handleDownloadCode = () => {
-    const ext = activePrinter.language === 'TSPL' ? 'tspl' : 'zpl';
+    const ext = activePrinter.language === 'TSPL' ? 'tspl' : activePrinter.language === 'EPL' ? 'epl' : 'zpl';
     const blob = new Blob([generatedCode], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = window.document.createElement('a');
