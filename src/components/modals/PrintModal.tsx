@@ -11,14 +11,24 @@ import {
   Eye,
   Layers,
   Settings,
-  Sliders
+  Sliders,
+  ArrowRightLeft,
+  Server,
+  Barcode,
+  Info,
+  ShieldAlert
 } from 'lucide-react';
 import { LabelDocument } from '../../types/label';
-import { PrinterProfile, PrintJob } from '../../types/printer';
+import { PrinterProfile, PrintJob, UserRole, BarTenderTemplateMetadata } from '../../types/printer';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { generateZplFromDocument } from '../../services/zplGenerator';
 import { generateTsplFromDocument, generateEplFromDocument } from '../../services/tsplGenerator';
 import { runPreflightValidation } from '../../services/preflightValidator';
+import {
+  checkUserPermission,
+  validateBarcodeData,
+  formatBarTenderIntegrationPayload
+} from '../../services/barTenderPrintService';
 
 interface PrintModalProps {
   isOpen: boolean;
@@ -30,6 +40,8 @@ interface PrintModalProps {
   dataSource?: DataSourceDefinition;
   counter?: SerializationCounter;
   onJobDispatched: (job: PrintJob) => void;
+  currentUserRole?: UserRole;
+  barTenderTemplate?: BarTenderTemplateMetadata;
 }
 
 export const PrintModal: React.FC<PrintModalProps> = ({
@@ -42,6 +54,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   dataSource,
   counter,
   onJobDispatched,
+  currentUserRole = 'OPERATOR',
+  barTenderTemplate
 }) => {
   if (!isOpen) return null;
 
@@ -51,13 +65,29 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const [rangeEnd, setRangeEnd] = useState(10);
   const [speed, setSpeed] = useState(6);
   const [darkness, setDarkness] = useState(18);
-  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'preflight'>('preview');
+  const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'bartender' | 'preflight'>('preview');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [dispatchSuccess, setDispatchSuccess] = useState<string | null>(null);
+  const [dispatchSuccess, setDispatchSuccess] = useState<{ id: string; status: string; note: string } | null>(null);
+
+  // Template variables state for on-demand values
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({
+    Batch_Number: 'LOT-2026-X49',
+    Serial_Number: 'SN-004092',
+    Product_Code: 'MED-99410-B',
+    Order_Number: 'ORD-881904',
+    Destination_Hub: 'Frankfurt Central Hub (FRA-02)',
+  });
 
   const activePrinter = printers.find(p => p.id === activePrinterId) || printers[0];
+  const fallbackPrinter = printers.find(p => p.id === activePrinter.fallbackPrinterId);
+
+  // Validation
   const diagnostics = runPreflightValidation(doc);
   const blockerCount = diagnostics.filter(d => d.severity === 'error' || d.severity === 'blocker').length;
+
+  const activeRole: UserRole = (currentUserRole as UserRole) || 'OPERATOR';
+  const isPrinterOffline = activePrinter.status === 'Offline' || activePrinter.isEnabled === false;
+  const permission = checkUserPermission(activeRole, 'PRINT', activePrinter);
 
   // Generate authentic raw printer code based on printer language
   const generatedCode =
@@ -76,33 +106,60 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
   const totalLabels = totalRecordsToPrint * copies;
 
+  // Handle printer dispatch
   const handlePrint = () => {
+    if (!permission.allowed) return;
+    if (copies <= 0) return;
+
     setIsSubmitting(true);
     setDispatchSuccess(null);
 
-    // Simulate enterprise socket/spooler submission
+    // Simulate enterprise BarTender service handoff
     setTimeout(() => {
       setIsSubmitting(false);
       const jobId = `JOB-${Math.floor(100000 + Math.random() * 900000)}`;
-      setDispatchSuccess(jobId);
+
+      const handoffNote = `PRINT HANDOFF CONFIRMED — Spooler job received by BarTender Print Service for queue "${activePrinter.systemPrinterName || activePrinter.name}".`;
+
+      setDispatchSuccess({
+        id: jobId,
+        status: 'SENT_TO_PRINT_SERVICE',
+        note: handoffNote,
+      });
 
       const job: PrintJob = {
         id: jobId,
+        jobNumber: `PJ-${jobId.split('-')[1]}`,
+        jobType: 'ON_DEMAND',
         jobName: `${doc.name} - Batch #${jobId.split('-')[1]}`,
+        requestedByUserId: 'usr-current',
+        requestedByUserName: activeRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
+        userRole: activeRole,
+        templateId: barTenderTemplate?.id || doc.id,
         templateName: doc.name,
         templateVersion: doc.metadata.version || 1,
         printerId: activePrinter.id,
-        printerName: activePrinter.name,
+        printerName: activePrinter.displayName || activePrinter.name,
+        requestedPrinterId: activePrinter.id,
+        actualPrinterId: activePrinter.id,
+        actualPrinterName: activePrinter.name,
+        fallbackPrinterUsed: false,
         copies,
         recordCount: totalRecordsToPrint,
-        status: 'COMPLETED',
+        labelQuantity: totalLabels,
+        labelDataJson: templateVariables,
+        status: 'SENT_TO_PRINT_SERVICE',
         createdAt: new Date().toLocaleTimeString(),
+        sentAt: new Date().toLocaleTimeString(),
         outputLanguage: activePrinter.language,
         rawPayloadPreview: generatedCode.slice(0, 500),
+        integrationMethod: 'BarTender REST API (v1/print)',
+        integrationResponseSummary: handoffNote,
+        retryCount: 0,
       };
 
       onJobDispatched(job);
-    }, 900);
+    }, 800);
   };
 
   const handleBrowserPrint = () => {
@@ -122,16 +179,28 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 select-none">
-      <div className="w-full max-w-4xl bg-[#1e2129] border border-[#343946] rounded-lg shadow-2xl flex flex-col max-h-[90vh] text-[#c9ccd3] text-xs overflow-hidden">
+      <div className="w-full max-w-5xl bg-[#1e2129] border border-[#343946] rounded-xl shadow-2xl flex flex-col max-h-[92vh] text-[#c9ccd3] text-xs overflow-hidden">
         {/* Modal Header */}
-        <div className="h-10 bg-[#252833] border-b border-[#343946] px-4 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Printer className="w-4 h-4 text-emerald-400" />
-            <span className="font-bold text-white text-sm">Enterprise Print Dispatch Workstation</span>
+        <div className="h-12 bg-[#252833] border-b border-[#343946] px-5 flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+              <Printer className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-white text-sm">BarTender® &amp; Enterprise Print Dispatch Workstation</span>
+                <span className="text-[10px] font-mono bg-blue-950/80 border border-blue-600/40 text-blue-300 px-2 py-0.2 rounded font-semibold">
+                  Role: {currentUserRole}
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400">
+                Document: <strong className="text-gray-200">{doc.name}</strong> • Layout: {doc.dimensions.width}×{doc.dimensions.height}{doc.dimensions.unit}
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[#323644] text-gray-400 hover:text-white"
+            className="p-1.5 rounded-lg hover:bg-[#323644] text-gray-400 hover:text-white transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -140,11 +209,11 @@ export const PrintModal: React.FC<PrintModalProps> = ({
         {/* Modal Body */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left Column: Print Settings & Configuration */}
-          <div className="w-80 border-r border-[#2d313d] bg-[#181a21] p-4 flex flex-col space-y-4 overflow-y-auto">
+          <div className="w-84 border-r border-[#2d313d] bg-[#181a21] p-4 flex flex-col space-y-4 overflow-y-auto">
             {/* Target Printer Profile */}
             <div>
               <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block mb-1">
-                Target Printer:
+                Target Physical Printer:
               </label>
               <select
                 value={activePrinterId}
@@ -153,24 +222,59 @@ export const PrintModal: React.FC<PrintModalProps> = ({
               >
                 {printers.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} ({p.language})
+                    {p.displayName || p.name} ({p.status})
                   </option>
                 ))}
               </select>
 
-              <div className="mt-1.5 p-2 rounded bg-[#13151b] border border-[#272b35] text-[10px] space-y-0.5">
+              {/* Offline / Fallback Warning Notice */}
+              {isPrinterOffline && (
+                <div className="mt-2 p-2.5 rounded bg-red-950/40 border border-red-800/60 text-red-200 text-[11px] space-y-1.5">
+                  <div className="flex items-center space-x-1.5 font-bold text-red-300">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Selected Printer is Offline or Disabled</span>
+                  </div>
+                  <p className="text-[10px] text-red-300/80">
+                    Direct handoff to this queue will fail or be paused in the Windows spooler.
+                  </p>
+                  {fallbackPrinter && (
+                    <div className="pt-1 border-t border-red-900/40 flex items-center justify-between">
+                      <span className="text-[10px] text-amber-300">Designated Fallback:</span>
+                      <button
+                        onClick={() => onSelectPrinter(fallbackPrinter.id)}
+                        className="px-2 py-0.5 rounded bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 text-[10px] font-bold border border-amber-600/40"
+                      >
+                        Switch to {fallbackPrinter.name.split(' ')[0]}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Hardware Connection Card */}
+              <div className="mt-2 p-2 rounded bg-[#13151b] border border-[#272b35] text-[10px] space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Connection:</span>
-                  <span className="font-mono text-gray-300">{activePrinter.connection} ({activePrinter.address})</span>
+                  <span className="text-gray-500">Spooler Queue:</span>
+                  <span className="font-mono text-gray-300 truncate max-w-[150px]">
+                    {activePrinter.systemPrinterName || activePrinter.address}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Language:</span>
                   <span className="font-mono text-cyan-400 font-bold">{activePrinter.language}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Resolution:</span>
-                  <span className="font-mono text-gray-300">{activePrinter.dpi} DPI</span>
+                  <span className="text-gray-500">Resolution &amp; Tech:</span>
+                  <span className="font-mono text-gray-300">
+                    {activePrinter.dpi} DPI ({activePrinter.supportedPrintTechnology || 'Thermal'})
+                  </span>
                 </div>
+                {activePrinter.supportsRfid && (
+                  <div className="flex justify-between text-emerald-400 font-semibold">
+                    <span>RFID Encoding:</span>
+                    <span>Supported (UHF Gen2)</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -186,7 +290,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                   max="1000"
                   value={copies}
                   onChange={(e) => setCopies(Math.max(1, Number(e.target.value)))}
-                  className="w-full bg-[#1e212a] border border-[#353a47] rounded px-2.5 py-1.5 text-xs text-white"
+                  className="w-full bg-[#1e212a] border border-[#353a47] rounded px-2.5 py-1.5 text-xs text-white font-mono"
                 />
               </div>
               <div>
@@ -199,38 +303,33 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                   max="30"
                   value={darkness}
                   onChange={(e) => setDarkness(Number(e.target.value))}
-                  className="w-full bg-[#1e212a] border border-[#353a47] rounded px-2.5 py-1.5 text-xs text-white"
+                  className="w-full bg-[#1e212a] border border-[#353a47] rounded px-2.5 py-1.5 text-xs text-white font-mono"
                 />
               </div>
             </div>
 
-            {/* Record Range Selection */}
-            <div className="space-y-1.5 border-t border-[#2a2e39] pt-3">
+            {/* BarTender Variable Fields Override */}
+            <div className="border-t border-[#2a2e39] pt-3 space-y-2">
               <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block">
-                Database Records to Print:
+                BarTender Named Data Substrings:
               </label>
-              <div className="space-y-1">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="recRange"
-                    checked={recordRange === 'current'}
-                    onChange={() => setRecordRange('current')}
-                    className="text-blue-600"
-                  />
-                  <span>Active Record Only (Record #{dataSource ? dataSource.currentRecordIndex + 1 : 1})</span>
-                </label>
-
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="recRange"
-                    checked={recordRange === 'all'}
-                    onChange={() => setRecordRange('all')}
-                    className="text-blue-600"
-                  />
-                  <span>All Records in Active Dataset ({dataSource?.records.length || 1} records)</span>
-                </label>
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {Object.entries(templateVariables).map(([key, val]) => (
+                  <div key={key} className="flex flex-col text-[11px]">
+                    <span className="text-gray-400 font-mono text-[10px]">{key}</span>
+                    <input
+                      type="text"
+                      value={val}
+                      onChange={(e) =>
+                        setTemplateVariables({
+                          ...templateVariables,
+                          [key]: e.target.value,
+                        })
+                      }
+                      className="bg-[#12141a] border border-[#313645] rounded px-2 py-1 text-xs text-white"
+                    />
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -264,6 +363,12 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                   className={`px-3 py-1 font-medium rounded ${activeTab === 'preview' ? 'bg-[#2f3442] text-white' : 'text-gray-400 hover:text-gray-200'}`}
                 >
                   WYSIWYG Output Preview
+                </button>
+                <button
+                  onClick={() => setActiveTab('bartender')}
+                  className={`px-3 py-1 font-medium rounded ${activeTab === 'bartender' ? 'bg-[#2f3442] text-blue-300' : 'text-gray-400 hover:text-gray-200'}`}
+                >
+                  BarTender Integration Payload
                 </button>
                 <button
                   onClick={() => setActiveTab('code')}
@@ -306,24 +411,66 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             <div className="flex-1 p-4 overflow-auto">
               {/* WYSIWYG PREVIEW */}
               {activeTab === 'preview' && (
-                <div className="h-full flex flex-col items-center justify-center">
+                <div className="h-full flex flex-col items-center justify-center space-y-3">
                   <div
-                    className="bg-white p-4 shadow-xl border border-gray-300 rounded max-w-sm w-full text-black flex flex-col items-center justify-center space-y-3"
-                    style={{ minHeight: '220px' }}
+                    className="bg-white p-5 shadow-xl border border-gray-300 rounded max-w-md w-full text-black flex flex-col justify-between space-y-3"
+                    style={{ minHeight: '230px' }}
                   >
-                    <div className="text-center font-bold text-xs border-b border-gray-200 pb-1 w-full">
-                      {doc.name}
+                    <div className="border-b border-gray-200 pb-2 flex justify-between items-center">
+                      <span className="font-bold text-xs">{doc.name}</span>
+                      <span className="text-[10px] font-mono text-gray-500">
+                        {doc.dimensions.width}×{doc.dimensions.height}{doc.dimensions.unit}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-gray-600">
-                      Physical Format: {doc.dimensions.width}mm × {doc.dimensions.height}mm @ {activePrinter.dpi} DPI
+
+                    <div className="bg-gray-100 p-3 rounded font-mono text-[11px] space-y-1">
+                      <div>Batch: <strong>{templateVariables.Batch_Number}</strong></div>
+                      <div>Serial: <strong>{templateVariables.Serial_Number}</strong></div>
+                      <div>Order: <strong>{templateVariables.Order_Number}</strong></div>
+                      <div>Dest: <strong>{templateVariables.Destination_Hub}</strong></div>
                     </div>
-                    <div className="text-[11px] font-mono p-2 bg-gray-100 rounded w-full text-center">
-                      Verified Barcode &amp; Text Substrate Ready
-                    </div>
-                    <div className="text-[9px] text-gray-400">
-                      Hardware Emulation: {activePrinter.manufacturer} ({activePrinter.language})
+
+                    <div className="text-[9px] text-gray-400 italic text-center">
+                      “Data preview — final layout is rendered by BarTender template.”
                     </div>
                   </div>
+
+                  <div className="text-[11px] text-gray-400 font-mono">
+                    Target Hardware Emulation: {activePrinter.manufacturer} ({activePrinter.language} @ {activePrinter.dpi} DPI)
+                  </div>
+                </div>
+              )}
+
+              {/* BARTENDER INTEGRATION PAYLOAD */}
+              {activeTab === 'bartender' && (
+                <div className="h-full flex flex-col">
+                  <div className="text-[10px] text-gray-400 font-mono mb-1">
+                    Structured BarTender REST API Payload (/api/actions JSON):
+                  </div>
+                  <pre className="flex-1 bg-[#12141a] border border-[#2b2f3a] p-3 rounded font-mono text-[11px] text-blue-300 overflow-auto select-text">
+                    {JSON.stringify(
+                      {
+                        Header: {
+                          Version: '2.0',
+                          Client: 'LabelForge-Web-Studio',
+                          RequestedByRole: currentUserRole,
+                          Timestamp: new Date().toISOString(),
+                        },
+                        Actions: [
+                          {
+                            Type: 'PrintDocument',
+                            DocumentFile: barTenderTemplate?.bartenderTemplateReference || `C:\\BarTender\\Templates\\${doc.name.replace(/\s+/g, '_')}.btw`,
+                            Printer: activePrinter.systemPrinterName || activePrinter.name,
+                            Copies: copies,
+                            NamedSubStrings: templateVariables,
+                            VerifyPrintCompletion: true,
+                          },
+                        ],
+                      },
+                      null,
+                      2
+                    )}
+                  </pre>
                 </div>
               )}
 
@@ -371,45 +518,56 @@ export const PrintModal: React.FC<PrintModalProps> = ({
               )}
             </div>
 
-            {/* Submission Success Banner */}
+            {/* Submission Handoff Status Banner */}
             {dispatchSuccess && (
               <div className="bg-emerald-950 border-t border-emerald-800 p-2.5 px-4 flex items-center justify-between text-emerald-200">
                 <div className="flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  <span>Job <strong>{dispatchSuccess}</strong> successfully transmitted to <strong>{activePrinter.address}</strong>!</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="text-xs">
+                    Job <strong>{dispatchSuccess.id}</strong>: {dispatchSuccess.note}
+                  </span>
                 </div>
-                <span className="text-[10px] font-mono bg-emerald-900/80 px-2 py-0.5 rounded">STATUS: COMPLETED</span>
+                <span className="text-[10px] font-mono bg-emerald-900/80 px-2 py-0.5 rounded font-bold uppercase shrink-0">
+                  SENT TO PRINT SERVICE
+                </span>
               </div>
             )}
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="h-12 bg-[#252833] border-t border-[#343946] px-4 flex items-center justify-between">
-          <div className="text-[11px] text-gray-400">
-            {blockerCount > 0 ? (
+        <div className="h-12 bg-[#252833] border-t border-[#343946] px-5 flex items-center justify-between">
+          <div className="text-[11px] text-gray-400 flex items-center space-x-2">
+            {!permission.allowed ? (
+              <span className="text-red-400 font-bold flex items-center space-x-1">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>{permission.reason}</span>
+              </span>
+            ) : blockerCount > 0 ? (
               <span className="text-red-400 font-bold">⚠ Cannot print: {blockerCount} blocker issue(s) detected</span>
+            ) : isPrinterOffline ? (
+              <span className="text-amber-400">⚠ Target printer offline — dispatch will queue in spooler</span>
             ) : (
-              <span className="text-emerald-400">✓ Ready to dispatch to {activePrinter.model}</span>
+              <span className="text-emerald-400">✓ Ready to dispatch {totalLabels} label(s) to {activePrinter.name}</span>
             )}
           </div>
 
           <div className="flex items-center space-x-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 rounded bg-[#2e3340] hover:bg-[#373d4d] text-gray-300 text-xs"
+              className="px-3.5 py-1.5 rounded bg-[#2e3340] hover:bg-[#373d4d] text-gray-300 text-xs font-medium"
             >
-              Cancel
+              Close
             </button>
             <button
-              disabled={isSubmitting || blockerCount > 0}
+              disabled={isSubmitting || blockerCount > 0 || !permission.allowed}
               onClick={handlePrint}
-              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center space-x-1.5"
+              className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center space-x-1.5 shadow-sm"
             >
               {isSubmitting ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Transmitting ZPL...</span>
+                  <span>Submitting to BarTender...</span>
                 </>
               ) : (
                 <>
@@ -424,3 +582,4 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     </div>
   );
 };
+

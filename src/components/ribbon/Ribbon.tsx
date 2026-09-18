@@ -35,7 +35,8 @@ import {
   Printer,
   Sparkles,
   ArrowRightLeft,
-  CheckSquare
+  CheckSquare,
+  Server
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, LabelDocument } from '../../types/label';
 import { FONT_GROUPS } from '../../services/fontFamilies';
@@ -95,6 +96,7 @@ interface RibbonProps {
   onAlign?: (alignment: any) => void;
   onZOrder?: (action: any) => void;
   onSelectTemplate?: (template: any) => void;
+  onOpenBarTenderManager?: () => void;
 }
 
 export const Ribbon: React.FC<RibbonProps> = (props) => {
@@ -125,6 +127,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
   const onOpenBarcodeWizard = props.onOpenBarcodeWizard ?? (() => {});
   const onOpenPrintDialog = props.onOpenPrintDialog ?? props.onOpenPrintModal ?? (() => {});
   const onOpenPrintPreview = props.onOpenPrintPreview ?? props.onOpenPrintModal ?? (() => {});
+  const onOpenBarTenderManager = props.onOpenBarTenderManager ?? (() => {});
   const onOpenDatabaseManager = props.onOpenDatabaseManager ?? (() => {});
   const onOpenFontManager = props.onOpenFontManager ?? (() => {});
   const onOpenWorkflowDesigner = props.onOpenWorkflowDesigner ?? props.onOpenWorkflowManager ?? (() => {});
@@ -744,6 +747,17 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
               </div>
             </button>
 
+            <button
+              onClick={onOpenBarTenderManager}
+              className="flex items-center space-x-2 px-3 py-2 rounded bg-blue-900/40 hover:bg-blue-800/60 border border-blue-700/50 text-blue-200"
+            >
+              <Server className="w-5 h-5 text-blue-400" />
+              <div className="text-left">
+                <div className="font-semibold text-xs">BarTender® Integration Service</div>
+                <div className="text-[10px] text-blue-400/80">REST API, Commander XML, Webhook Spooler</div>
+              </div>
+            </button>
+
             <div className="flex items-center space-x-2 bg-[#1b1e25] px-2.5 py-1.5 rounded border border-emerald-900/40 text-emerald-400 text-xs">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               <span>Auto-Print Spooler: <strong>Active (Watching /spool/inbox)</strong></span>
@@ -761,10 +775,18 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
             </div>
 
             <button
+              onClick={onOpenBarTenderManager}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-blue-900/50 hover:bg-blue-800/70 border border-blue-600/60 text-blue-200 text-xs font-semibold"
+            >
+              <Server className="w-3.5 h-3.5 text-blue-400" />
+              <span>BarTender® Fleet &amp; Queue Manager</span>
+            </button>
+
+            <button
               onClick={onOpenPrintDialog}
               className="px-3 py-1.5 rounded bg-[#2e3340] hover:bg-[#383e4d] text-xs text-gray-200"
             >
-              Printer Fleet &amp; Profiles...
+              Print Dispatch Workstation...
             </button>
             <button
               onClick={onOpenFontManager}

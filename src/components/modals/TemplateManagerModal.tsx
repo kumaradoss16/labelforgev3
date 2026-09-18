@@ -99,34 +99,34 @@ export const TemplateManagerModal: React.FC<TemplateManagerModalProps> = ({
         </div>
 
         {/* Tab switcher */}
-        <div className="bg-[#1c1f26] border-b border-[#303440] px-4 flex space-x-4 text-xs font-medium">
+        <div className="bg-[#1c1f26] border-b border-[#303440] px-5 flex space-x-6 text-sm font-medium">
           <button
             onClick={() => setActiveTab('export')}
-            className={`py-2 border-b-2 transition-colors flex items-center space-x-1.5 ${
-              activeTab === 'export' ? 'text-white border-blue-500 font-semibold' : 'text-gray-400 border-transparent hover:text-gray-200'
+            className={`py-3 border-b-2 transition-colors flex items-center space-x-2 ${
+              activeTab === 'export' ? 'text-white border-blue-500 font-bold' : 'text-gray-400 border-transparent hover:text-gray-200'
             }`}
           >
-            <Download className="w-3.5 h-3.5 text-blue-400" />
+            <Download className="w-4 h-4 text-blue-400" />
             <span>Package &amp; Export</span>
           </button>
 
           <button
             onClick={() => setActiveTab('import')}
-            className={`py-2 border-b-2 transition-colors flex items-center space-x-1.5 ${
-              activeTab === 'import' ? 'text-white border-emerald-500 font-semibold' : 'text-gray-400 border-transparent hover:text-gray-200'
+            className={`py-3 border-b-2 transition-colors flex items-center space-x-2 ${
+              activeTab === 'import' ? 'text-white border-emerald-500 font-bold' : 'text-gray-400 border-transparent hover:text-gray-200'
             }`}
           >
-            <Upload className="w-3.5 h-3.5 text-emerald-400" />
+            <Upload className="w-4 h-4 text-emerald-400" />
             <span>Validate &amp; Open (.lforge / .btw.json)</span>
           </button>
 
           <button
             onClick={() => setActiveTab('manifest')}
-            className={`py-2 border-b-2 transition-colors flex items-center space-x-1.5 ${
-              activeTab === 'manifest' ? 'text-white border-purple-500 font-semibold' : 'text-gray-400 border-transparent hover:text-gray-200'
+            className={`py-3 border-b-2 transition-colors flex items-center space-x-2 ${
+              activeTab === 'manifest' ? 'text-white border-purple-500 font-bold' : 'text-gray-400 border-transparent hover:text-gray-200'
             }`}
           >
-            <FileCode className="w-3.5 h-3.5 text-purple-400" />
+            <FileCode className="w-4 h-4 text-purple-400" />
             <span>Canonical Package Manifest</span>
           </button>
         </div>

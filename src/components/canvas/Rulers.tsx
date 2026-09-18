@@ -34,8 +34,9 @@ export const Rulers: React.FC<RulersProps> = ({
   unit,
   onUnitChange,
   onAddGuide,
-  rulerThickness = 26,
+  rulerThickness = 28,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [showUnitMenu, setShowUnitMenu] = useState(false);
   const [dragGuideType, setDragGuideType] = useState<'h' | 'v' | null>(null);
   const [dragGuidePos, setDragGuidePos] = useState<number>(0);
@@ -71,7 +72,7 @@ export const Rulers: React.FC<RulersProps> = ({
 
   // Determine tick step based on zoom and unit
   const determineStep = (pxUnit: number) => {
-    const minPixelGap = 40;
+    const minPixelGap = 36;
     const standardSteps = unit === 'in'
       ? [0.125, 0.25, 0.5, 1, 2, 5, 10]
       : [0.5, 1, 2, 5, 10, 20, 50, 100, 200];
@@ -105,7 +106,7 @@ export const Rulers: React.FC<RulersProps> = ({
     }
 
     // Intermediate ticks if zoomed in enough
-    if (majorStep * pxPerUnit > 30) {
+    if (majorStep * pxPerUnit > 25) {
       // Medium tick
       const medPos = pos + mediumStep * pxPerUnit;
       if (medPos >= -20 && medPos <= hRulerWidth + 20) {
@@ -139,7 +140,7 @@ export const Rulers: React.FC<RulersProps> = ({
       vTicks.push({ pos, val: u, type: 'major', label });
     }
 
-    if (majorStep * pxPerUnit > 30) {
+    if (majorStep * pxPerUnit > 25) {
       const medPos = pos + mediumStep * pxPerUnit;
       if (medPos >= -20 && medPos <= vRulerHeight + 20) {
         vTicks.push({ pos: medPos, val: u + mediumStep, type: 'medium' });
@@ -175,24 +176,23 @@ export const Rulers: React.FC<RulersProps> = ({
     onUnitChange(units[nextIdx]);
   };
 
-  // Guide dragging handlers
+  // Guide dragging handlers with true element-relative bounding box
   useEffect(() => {
     if (!dragGuideType) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (dragGuideType === 'h') {
-        const clientY = e.clientY;
-        setDragGuidePos(clientY);
+        setDragGuidePos(e.clientY);
       } else if (dragGuideType === 'v') {
-        const clientX = e.clientX;
-        setDragGuidePos(clientX);
+        setDragGuidePos(e.clientX);
       }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
+      const containerRect = containerRef.current?.getBoundingClientRect();
       if (dragGuideType === 'h') {
-        // Calculate position in mm relative to template origin
-        const rawYPx = e.clientY - (rulerThickness + 40); // account for editor top
+        const topEdge = containerRect ? containerRect.top + rulerThickness : rulerThickness;
+        const rawYPx = e.clientY - topEdge;
         const mm = (rawYPx - originScreenY) / pxPerMm;
         if (onAddGuide && Math.abs(mm) < 1000) {
           onAddGuide({
@@ -202,7 +202,8 @@ export const Rulers: React.FC<RulersProps> = ({
           });
         }
       } else if (dragGuideType === 'v') {
-        const rawXPx = e.clientX - (rulerThickness + 40);
+        const leftEdge = containerRect ? containerRect.left + rulerThickness : rulerThickness;
+        const rawXPx = e.clientX - leftEdge;
         const mm = (rawXPx - originScreenX) / pxPerMm;
         if (onAddGuide && Math.abs(mm) < 1000) {
           onAddGuide({
@@ -224,7 +225,7 @@ export const Rulers: React.FC<RulersProps> = ({
   }, [dragGuideType, originScreenX, originScreenY, pxPerMm, onAddGuide, rulerThickness]);
 
   return (
-    <div className="absolute inset-0 pointer-events-none select-none z-20">
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none select-none z-20">
       {/* 1. TOP-LEFT CORNER ORIGIN BLOCK */}
       <div
         style={{ width: `${rulerThickness}px`, height: `${rulerThickness}px` }}
@@ -237,7 +238,7 @@ export const Rulers: React.FC<RulersProps> = ({
         title={`Unit: ${unit.toUpperCase()} (Click to cycle mm, in, cm, pt | Right-click for options)`}
       >
         <span className="text-[10px] font-mono font-bold text-blue-400 group-hover:text-blue-300">
-          {unit}
+          {unit.toUpperCase()}
         </span>
       </div>
 
@@ -268,7 +269,7 @@ export const Rulers: React.FC<RulersProps> = ({
         </div>
       )}
 
-      {/* 2. TOP HORIZONTAL RULER - COVERS ENTIRE EDITOR SECTION */}
+      {/* 2. TOP HORIZONTAL RULER */}
       <div
         style={{
           left: `${rulerThickness}px`,
@@ -323,28 +324,26 @@ export const Rulers: React.FC<RulersProps> = ({
 
           {/* Active Template Span Indicator Bar at top */}
           {templateScreenEndH > templateScreenStartH && (
-            <g>
-              <rect
-                x={templateScreenStartH}
-                y={rulerThickness - 3}
-                width={Math.max(0, templateScreenEndH - templateScreenStartH)}
-                height={3}
-                fill="#3b82f6"
-              />
-            </g>
+            <rect
+              x={templateScreenStartH}
+              y={rulerThickness - 3}
+              width={Math.max(0, templateScreenEndH - templateScreenStartH)}
+              height={3}
+              fill="#3b82f6"
+            />
           )}
 
-          {/* All Ruler Ticks across entire editor section */}
+          {/* All Horizontal Ruler Ticks */}
           {hTicks.map((t, idx) => {
             const isOrigin = t.val === 0;
             return (
               <g key={`ht-${idx}-${t.val}`}>
                 <line
                   x1={t.pos}
-                  y1={t.type === 'major' ? 10 : t.type === 'medium' ? 16 : 20}
+                  y1={t.type === 'major' ? rulerThickness - 11 : t.type === 'medium' ? rulerThickness - 7 : rulerThickness - 4}
                   x2={t.pos}
                   y2={rulerThickness}
-                  stroke={isOrigin ? '#60a5fa' : t.type === 'major' ? '#8e96a8' : '#454b5b'}
+                  stroke={isOrigin ? '#60a5fa' : t.type === 'major' ? '#8e96a8' : t.type === 'medium' ? '#525a6c' : '#3d4352'}
                   strokeWidth={isOrigin ? 1.5 : 1}
                 />
                 {t.type === 'major' && t.label && (
@@ -352,9 +351,9 @@ export const Rulers: React.FC<RulersProps> = ({
                     x={t.pos + 2}
                     y={11}
                     fill={isOrigin ? '#93c5fd' : '#9ca3af'}
-                    fontSize="9"
+                    fontSize="8.5"
                     fontWeight={isOrigin ? 'bold' : 'normal'}
-                    fontFamily="ui-monospace, monospace"
+                    fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
                   >
                     {t.label}
                   </text>
@@ -373,7 +372,7 @@ export const Rulers: React.FC<RulersProps> = ({
         </svg>
       </div>
 
-      {/* 3. LEFT VERTICAL RULER - COVERS ENTIRE EDITOR SECTION */}
+      {/* 3. LEFT VERTICAL RULER - FULLY FIXED (UPRIGHT NUMBERS, PROPER ALIGNMENT, NO CLIPPING) */}
       <div
         style={{
           left: 0,
@@ -390,7 +389,7 @@ export const Rulers: React.FC<RulersProps> = ({
         title="Vertical Ruler. Drag right to create a guide line."
       >
         <svg width={rulerThickness} height="100%" className="overflow-hidden block">
-          {/* Subtle Background strip for template span */}
+          {/* Background strip for template span */}
           {templateScreenEndV > templateScreenStartV && (
             <rect
               x={0}
@@ -430,35 +429,37 @@ export const Rulers: React.FC<RulersProps> = ({
           {templateScreenEndV > templateScreenStartV && (
             <rect
               x={rulerThickness - 3}
-              y={templateScreenStartV}
+              y={Math.max(0, templateScreenStartV)}
               width={3}
-              height={Math.max(0, templateScreenEndV - templateScreenStartV)}
+              height={Math.max(0, Math.min(vRulerHeight, templateScreenEndV) - Math.max(0, templateScreenStartV))}
               fill="#3b82f6"
             />
           )}
 
-          {/* All Ruler Ticks across entire vertical editor section */}
+          {/* All Vertical Ruler Ticks & Upright Horizontal Numbers */}
           {vTicks.map((t, idx) => {
             const isOrigin = t.val === 0;
             return (
               <g key={`vt-${idx}-${t.val}`}>
+                {/* Horizontal tick line extending to right edge of ruler */}
                 <line
-                  x1={t.type === 'major' ? 10 : t.type === 'medium' ? 16 : 20}
+                  x1={t.type === 'major' ? rulerThickness - 11 : t.type === 'medium' ? rulerThickness - 7 : rulerThickness - 4}
                   y1={t.pos}
                   x2={rulerThickness}
                   y2={t.pos}
-                  stroke={isOrigin ? '#60a5fa' : t.type === 'major' ? '#8e96a8' : '#454b5b'}
+                  stroke={isOrigin ? '#60a5fa' : t.type === 'major' ? '#8e96a8' : t.type === 'medium' ? '#525a6c' : '#3d4352'}
                   strokeWidth={isOrigin ? 1.5 : 1}
                 />
+                {/* Upright horizontal number label, right aligned to clear the tick mark */}
                 {t.type === 'major' && t.label && (
                   <text
-                    x={2}
-                    y={t.pos - 2}
+                    x={rulerThickness - 13}
+                    y={t.pos + 3.5}
+                    textAnchor="end"
                     fill={isOrigin ? '#93c5fd' : '#9ca3af'}
-                    fontSize="9"
+                    fontSize={t.label.length > 3 ? '7.5' : '8.5'}
                     fontWeight={isOrigin ? 'bold' : 'normal'}
-                    fontFamily="ui-monospace, monospace"
-                    transform={`rotate(-90 2 ${t.pos - 2})`}
+                    fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
                   >
                     {t.label}
                   </text>
@@ -467,7 +468,7 @@ export const Rulers: React.FC<RulersProps> = ({
             );
           })}
 
-          {/* Dynamic Cursor tracking hairline */}
+          {/* Dynamic Cursor tracking hairline on vertical ruler */}
           {cursorScreenY >= 0 && cursorScreenY <= vRulerHeight && (
             <g transform={`translate(0, ${cursorScreenY})`}>
               <line x1={0} y1={0} x2={rulerThickness} y2={0} stroke="#ef4444" strokeWidth={1.5} />
@@ -484,7 +485,7 @@ export const Rulers: React.FC<RulersProps> = ({
           className="fixed left-0 right-0 h-0 border-t border-cyan-400 border-dashed pointer-events-none z-50 flex items-center justify-end pr-4"
         >
           <span className="bg-cyan-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded shadow">
-            Y: {((dragGuidePos - (rulerThickness + 40) - originScreenY) / pxPerMm).toFixed(1)} {unitSuffix}
+            Y: {((dragGuidePos - (containerRef.current?.getBoundingClientRect().top || 0) - rulerThickness - originScreenY) / pxPerMm).toFixed(1)} {unitSuffix}
           </span>
         </div>
       )}
@@ -495,7 +496,7 @@ export const Rulers: React.FC<RulersProps> = ({
           className="fixed top-0 bottom-0 w-0 border-l border-cyan-400 border-dashed pointer-events-none z-50 flex items-start justify-end pt-4"
         >
           <span className="bg-cyan-600 text-white text-[10px] font-mono px-1.5 py-0.5 rounded shadow -ml-8">
-            X: {((dragGuidePos - (rulerThickness + 40) - originScreenX) / pxPerMm).toFixed(1)} {unitSuffix}
+            X: {((dragGuidePos - (containerRef.current?.getBoundingClientRect().left || 0) - rulerThickness - originScreenX) / pxPerMm).toFixed(1)} {unitSuffix}
           </span>
         </div>
       )}

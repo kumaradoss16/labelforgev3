@@ -16,18 +16,55 @@ import { FontManagerModal } from './components/modals/FontManagerModal';
 import { WorkflowDesignerModal } from './components/modals/WorkflowDesignerModal';
 import { ShortcutsModal } from './components/modals/ShortcutsModal';
 import { TemplateManagerModal } from './components/modals/TemplateManagerModal';
+import { BarTenderManagerModal } from './components/modals/BarTenderManagerModal';
 
 // Types & Services
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
-import { PrinterProfile, PrintJob } from './types/printer';
+import { PrinterProfile, PrintJob, PrintAuditLog, UserRole, BarTenderTemplateMetadata } from './types/printer';
 import { DataSourceDefinition, SerializationCounter } from './types/database';
-import { SAMPLE_TEMPLATES, SAMPLE_PRINTERS, SAMPLE_DATA_SOURCES, SAMPLE_SERIAL_COUNTER } from './services/sampleData';
+import {
+  SAMPLE_TEMPLATES,
+  SAMPLE_PRINTERS,
+  SAMPLE_DATA_SOURCES,
+  SAMPLE_SERIAL_COUNTER,
+  SAMPLE_PRINT_JOBS,
+  SAMPLE_AUDIT_LOGS,
+  SAMPLE_BARTENDER_TEMPLATES
+} from './services/sampleData';
 import { runPreflightValidation } from './services/preflightValidator';
 import { createLForgePackage, parseAndValidateLForgePackage } from './services/lforgePackage';
 
 export const App: React.FC = () => {
-  // Document state with undo/redo
-  const [document, setDocument] = useState<LabelDocument>(SAMPLE_TEMPLATES[0]);
+  // Document state with undo/redo and multi-document tabs
+  const [openDocuments, setOpenDocuments] = useState<LabelDocument[]>(() => {
+    const validTemplates = (SAMPLE_TEMPLATES || []).filter(Boolean);
+    return validTemplates.length > 0 ? validTemplates : [];
+  });
+  const [document, setDocument] = useState<LabelDocument>(() => {
+    return SAMPLE_TEMPLATES?.[0] || {
+      id: 'doc-default',
+      schemaVersion: '1.0.0',
+      name: 'Default Label',
+      description: 'Standard label document',
+      author: 'Operator',
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      dimensions: {
+        width: 100,
+        height: 150,
+        unit: 'mm',
+        dpi: 300,
+        orientation: 'portrait',
+        marginLeft: 2,
+        marginTop: 2,
+        marginRight: 2,
+        marginBottom: 2,
+        cornerRadius: 1,
+      },
+      metadata: { targetPrinter: 'prn-01', site: 'Main Facility', version: 1, status: 'draft' },
+      objects: [],
+    };
+  });
   const [historyPast, setHistoryPast] = useState<LabelDocument[]>([]);
   const [historyFuture, setHistoryFuture] = useState<LabelDocument[]>([]);
   const [isModified, setIsModified] = useState(false);
@@ -67,6 +104,13 @@ export const App: React.FC = () => {
   const [activeRecordIndex, setActiveRecordIndex] = useState<number>(0);
   const [counter, setCounter] = useState<SerializationCounter>(SAMPLE_SERIAL_COUNTER);
 
+  // Enterprise Role & BarTender Integration State
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('PRINT_MANAGER');
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>(SAMPLE_PRINT_JOBS);
+  const [auditLogs, setAuditLogs] = useState<PrintAuditLog[]>(SAMPLE_AUDIT_LOGS);
+  const [barTenderTemplates, setBarTenderTemplates] = useState<BarTenderTemplateMetadata[]>(SAMPLE_BARTENDER_TEMPLATES);
+  const [isBarTenderModalOpen, setIsBarTenderModalOpen] = useState(false);
+
   // Modals state
   const [isBarcodeWizardOpen, setIsBarcodeWizardOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -82,6 +126,28 @@ export const App: React.FC = () => {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Enterprise Print Job Dispatched Handler
+  const handleJobDispatched = (job: PrintJob) => {
+    setPrintJobs(prev => [job, ...prev]);
+    const auditLog: PrintAuditLog = {
+      id: `LOG-${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString(),
+      userId: 'usr-01',
+      userName: currentUserRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
+      userRole: currentUserRole,
+      action: 'SUBMIT_JOB',
+      jobId: job.id,
+      printerId: job.printerId,
+      printerName: job.printerName,
+      templateName: job.templateName,
+      result: 'SUCCESS',
+      details: `Dispatched ${job.labelQuantity || job.copies} labels to ${job.printerName} via ${job.integrationMethod || 'BarTender Print Service'}. Handoff status: ${job.status}`,
+    };
+    setAuditLogs(prev => [auditLog, ...prev]);
+    showToast(`Print Handoff Confirmed: Job ${job.id} dispatched to ${job.printerName}`);
+    setCounter(prev => ({ ...prev, currentValue: prev.currentValue + job.copies }));
   };
 
   // Guide handlers
@@ -129,6 +195,13 @@ export const App: React.FC = () => {
     setHistoryPast(prev => [...prev.slice(-20), document]);
     setHistoryFuture([]);
     setDocument(newDoc);
+    setOpenDocuments(prev => {
+      const exists = prev.some(d => d && d.id === newDoc.id);
+      if (exists) {
+        return prev.map(d => (d && d.id === newDoc.id ? newDoc : d)).filter(Boolean);
+      }
+      return [...prev.filter(Boolean), newDoc];
+    });
     setIsModified(true);
   };
 
@@ -139,6 +212,7 @@ export const App: React.FC = () => {
     setHistoryFuture(prev => [document, ...prev]);
     setHistoryPast(prev => prev.slice(0, prev.length - 1));
     setDocument(previous);
+    setOpenDocuments(prev => prev.map(d => (d && d.id === previous.id ? previous : d)).filter(Boolean));
   }, [historyPast, document]);
 
   const handleRedo = useCallback(() => {
@@ -147,6 +221,7 @@ export const App: React.FC = () => {
     setHistoryPast(prev => [...prev, document]);
     setHistoryFuture(prev => prev.slice(1));
     setDocument(next);
+    setOpenDocuments(prev => prev.map(d => (d && d.id === next.id ? next : d)).filter(Boolean));
   }, [historyFuture, document]);
 
   // Object manipulations
@@ -565,9 +640,53 @@ export const App: React.FC = () => {
 
   // Switch between industrial templates
   const handleSelectTemplate = (template: LabelDocument) => {
+    if (!template || !template.id) return;
+    if (!openDocuments.some(d => d && d.id === template.id)) {
+      setOpenDocuments(prev => [...prev.filter(Boolean), template]);
+    }
     pushHistory(template);
     setSelectedObjectId(null);
     showToast(`Loaded Template: ${template.name}`);
+  };
+
+  // Document Tab Management
+  const handleSelectDocumentTab = (docId: string) => {
+    const target = openDocuments.find(d => d && d.id === docId);
+    if (target) {
+      setDocument(target);
+      setSelectedObjectId(null);
+      setSelectedObjectIds([]);
+      showToast(`Switched to Document: ${target.name}`);
+    }
+  };
+
+  const handleCloseDocumentTab = (docId: string) => {
+    const validDocs = openDocuments.filter((d): d is LabelDocument => Boolean(d && d.id));
+    if (validDocs.length <= 1) return;
+    const remaining = validDocs.filter(d => d.id !== docId);
+    setOpenDocuments(remaining);
+    if (document.id === docId && remaining[0]) {
+      setDocument(remaining[0]);
+      setSelectedObjectId(null);
+      setSelectedObjectIds([]);
+    }
+  };
+
+  const handleNewDocumentTab = () => {
+    const validTemplates = (SAMPLE_TEMPLATES || []).filter(Boolean);
+    const unOpened = validTemplates.find(t => !openDocuments.some(od => od && od.id === t.id));
+    const baseTemplate = unOpened || validTemplates[0] || document;
+    const nextDoc: LabelDocument = {
+      ...baseTemplate,
+      id: `doc-${Date.now()}`,
+      name: `Custom_Label_${openDocuments.length + 1}`,
+      objects: baseTemplate.objects ? [...baseTemplate.objects] : [],
+    };
+    setOpenDocuments(prev => [...prev.filter(Boolean), nextDoc]);
+    setDocument(nextDoc);
+    setSelectedObjectId(null);
+    setSelectedObjectIds([]);
+    showToast(`Opened New Label Document: ${nextDoc.name}`);
   };
 
   // Global Keyboard shortcuts
@@ -613,6 +732,8 @@ export const App: React.FC = () => {
         onOpenDataSources={() => setIsDatabaseModalOpen(true)}
         onOpenFontManager={() => setIsFontModalOpen(true)}
         onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
+        onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
+        currentUserRole={currentUserRole}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={historyPast.length > 0}
@@ -635,6 +756,7 @@ export const App: React.FC = () => {
         onOpenBarcodeWizard={(sym) => setIsBarcodeWizardOpen(true)}
         onOpenPrintDialog={() => setIsPrintModalOpen(true)}
         onOpenPrintPreview={() => setIsPrintModalOpen(true)}
+        onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
         onOpenDatabaseManager={() => setIsDatabaseModalOpen(true)}
         onOpenFontManager={() => setIsFontModalOpen(true)}
         onOpenWorkflowDesigner={() => setIsWorkflowModalOpen(true)}
@@ -746,6 +868,13 @@ export const App: React.FC = () => {
             onDeleteSelected={() => handleDeleteObject()}
             isMaximized={isFocusMode}
             onToggleMaximize={handleToggleFocusMode}
+            isModified={isModified}
+            openDocuments={openDocuments}
+            activeDocumentId={document.id}
+            onSelectDocumentTab={handleSelectDocumentTab}
+            onCloseDocumentTab={handleCloseDocumentTab}
+            onNewDocumentTab={handleNewDocumentTab}
+            onSelectTemplate={handleSelectTemplate}
           />
         </div>
 
@@ -822,10 +951,29 @@ export const App: React.FC = () => {
         onSelectPrinter={setActivePrinterId}
         dataSource={activeDataSource}
         counter={counter}
-        onJobDispatched={(job) => {
-          showToast(`Job ${job.id} dispatched to ${job.printerName}`);
-          // Auto increment serialization counter if serialized
-          setCounter(prev => ({ ...prev, currentValue: prev.currentValue + job.copies }));
+        currentUserRole={currentUserRole}
+        barTenderTemplate={barTenderTemplates[0]}
+        onJobDispatched={handleJobDispatched}
+      />
+
+      <BarTenderManagerModal
+        isOpen={isBarTenderModalOpen}
+        onClose={() => setIsBarTenderModalOpen(false)}
+        printers={printers}
+        onUpdatePrinters={setPrinters}
+        printJobs={printJobs}
+        onUpdatePrintJobs={setPrintJobs}
+        auditLogs={auditLogs}
+        onAddAuditLog={(log) => setAuditLogs(prev => [log, ...prev])}
+        barTenderTemplates={barTenderTemplates}
+        onUpdateTemplates={setBarTenderTemplates}
+        currentUserRole={currentUserRole}
+        onChangeUserRole={setCurrentUserRole}
+        activeDocument={document}
+        onSelectPrinter={(id) => {
+          setActivePrinterId(id);
+          const prn = printers.find(p => p.id === id);
+          if (prn) showToast(`Active dispatch target set to: ${prn.name}`);
         }}
       />
 

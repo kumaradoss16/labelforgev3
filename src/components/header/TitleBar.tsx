@@ -31,8 +31,10 @@ interface TitleBarProps {
   onOpenDataSources?: () => void;
   onOpenFontManager?: () => void;
   onOpenTemplateManager?: () => void;
+  onOpenBarTenderManager?: () => void;
   onOpen?: () => void;
   onPrint?: () => void;
+  currentUserRole?: string;
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({
@@ -48,8 +50,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onOpenDataSources,
   onOpenFontManager,
   onOpenTemplateManager,
+  onOpenBarTenderManager,
   onOpen,
   onPrint,
+  currentUserRole = 'PRINT_MANAGER',
 }) => {
   const handlePrint = onOpenPrint || onPrint || (() => {});
   return (
@@ -101,6 +105,18 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           >
             <Printer className="w-3.5 h-3.5 text-emerald-400" />
           </button>
+
+          {onOpenBarTenderManager && (
+            <button
+              onClick={onOpenBarTenderManager}
+              title="BarTender® Integration & Printer Fleet Manager"
+              className="px-1.5 py-0.5 rounded bg-blue-900/40 hover:bg-blue-800/60 border border-blue-600/40 text-blue-300 font-mono text-[10px] flex items-center space-x-1 transition-colors"
+            >
+              <Server className="w-3 h-3 text-blue-400" />
+              <span className="font-semibold">BarTender® Fleet</span>
+            </button>
+          )}
+
           {onOpenPrintPreview && (
             <button
               onClick={onOpenPrintPreview}
@@ -148,12 +164,12 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           {isModified && <span className="text-amber-400 font-bold ml-0.5">*</span>}
         </span>
         <span className="text-gray-500 text-[10px]">|</span>
-        <span className="text-gray-400">User: <strong className="text-gray-200">Admin</strong></span>
+        <span className="text-gray-400">Role: <strong className="text-blue-300 font-mono">{currentUserRole}</strong></span>
         <span className="text-gray-500 text-[10px]">|</span>
         <span className="text-gray-400">Site: <strong className="text-gray-200">Global HQ (DC-01)</strong></span>
         <span className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-400 text-[10px]">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span>Server Online</span>
+          <span>BarTender Integration Online</span>
         </span>
       </div>
 

@@ -27,13 +27,19 @@ import {
   AlignVerticalDistributeCenter,
   Copy,
   Layers,
-  Move
+  Move,
+  Tag,
+  FileText,
+  Plus,
+  X,
+  Square
 } from 'lucide-react';
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GuideLine } from '../../types/label';
 import { DataRecord, SerializationCounter } from '../../types/database';
 import { evaluateExpression } from '../../services/dataBinding';
 import { render1DBarcodeSvg, renderQRCodeDataUrl, generateDataMatrixSvg, generatePostal4StateSvg } from '../../services/barcodeEngine';
 import { getFontCssStack } from '../../services/fontFamilies';
+import { SAMPLE_TEMPLATES } from '../../services/sampleData';
 import { Rulers } from './Rulers';
 
 interface DesignerCanvasProps {
@@ -74,6 +80,14 @@ interface DesignerCanvasProps {
   onDeleteSelected: () => void;
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
+  // Enlarged Document Tab and Multi-document Support
+  isModified?: boolean;
+  openDocuments?: LabelDocument[];
+  activeDocumentId?: string;
+  onSelectDocumentTab?: (docId: string) => void;
+  onCloseDocumentTab?: (docId: string) => void;
+  onNewDocumentTab?: () => void;
+  onSelectTemplate?: (template: LabelDocument) => void;
 }
 
 export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
@@ -114,6 +128,13 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   onDeleteSelected,
   isMaximized = false,
   onToggleMaximize,
+  isModified = false,
+  openDocuments,
+  activeDocumentId,
+  onSelectDocumentTab,
+  onCloseDocumentTab,
+  onNewDocumentTab,
+  onSelectTemplate,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -125,8 +146,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   const [showMargins, setShowMargins] = useState(true);
   const [selectedGuideId, setSelectedGuideId] = useState<string | null>(null);
 
-  // Rulers config
-  const rulerThickness = 26;
+  // Rulers config - 28px standard
+  const rulerThickness = 28;
 
   // Scale: 1 mm = ~3.7795 px at 96 DPI CSS scale
   const pxPerMm = 3.7795 * zoom;
@@ -682,268 +703,339 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full bg-[#13151b] relative overflow-hidden select-none">
       {/* ==================================================================== */}
-      {/* 1. TOP EDITOR CONTROL BAR (Ruler Options, Fit Template, Zoom, Guides) */}
+      {/* 1. ENLARGED LABEL EDITOR DOCUMENT TAB BAR & CONTROL STRIP */}
       {/* ==================================================================== */}
-      <div className="h-8 bg-[#1a1c24] border-b border-[#2b2f3b] px-3 flex items-center justify-between z-30 shrink-0 text-xs text-gray-300">
-        {/* Left: Template Size & Scale Fit actions */}
-        <div className="flex items-center space-x-2">
-          {/* Label Dimensions Pill */}
-          <div className="bg-[#242834] px-2 py-0.5 rounded border border-[#353b4c] text-[11px] font-mono text-gray-300 flex items-center space-x-1.5 shadow-sm">
-            <span className="text-gray-400">Template:</span>
-            <span className="font-bold text-blue-400">
-              {doc.dimensions.width}×{doc.dimensions.height} mm
-            </span>
-            <span className="text-[10px] text-gray-400">
-              ({(doc.dimensions.width / 25.4).toFixed(2)}"×{(doc.dimensions.height / 25.4).toFixed(2)}")
-            </span>
+      <div className="bg-[#181a22] border-b border-[#2d313d] flex flex-col z-30 shrink-0 select-none shadow-xs">
+        {/* Tier 1: Authentic Enlarged Document / Template Tabs */}
+        <div className="h-14 bg-[#14161e] border-b border-[#272b38] px-3 flex items-center justify-between overflow-x-auto">
+          {/* Left: Document Tabs Strip */}
+          <div className="flex items-center space-x-2 h-full pt-2">
+            {/* Open document tabs or current document tab */}
+            {(openDocuments && openDocuments.length > 0 ? openDocuments : [doc])
+              .filter((d): d is LabelDocument => Boolean(d && d.id))
+              .map((tDoc) => {
+                const isActive = tDoc.id === (activeDocumentId || doc?.id);
+                const width = tDoc.dimensions?.width ?? 100;
+                const height = tDoc.dimensions?.height ?? 150;
+                return (
+                  <div
+                    key={tDoc.id}
+                    onClick={() => onSelectDocumentTab?.(tDoc.id)}
+                    className={`group relative flex items-center space-x-3 px-4.5 h-12 rounded-t-lg cursor-pointer transition-all duration-150 border-t-2 shadow-xs ${
+                      isActive
+                        ? 'bg-[#1f232d] border-blue-500 text-white shadow-md'
+                        : 'bg-[#151720] border-transparent text-gray-400 hover:text-gray-200 hover:bg-[#1a1d26]'
+                    }`}
+                    title={`${tDoc.name || 'Untitled'} (${width}×${height}mm)`}
+                  >
+                    <Tag className={`w-4 h-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
+
+                    {/* Document / Template Name - Enlarged font for maximum prominence */}
+                    <span className={`text-sm font-bold tracking-wide whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-300'}`}>
+                      {tDoc.name || 'Untitled Template'}
+                    </span>
+
+                    {/* Format Badge */}
+                    <span className="text-[11px] font-mono bg-blue-950/90 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded font-bold shrink-0">
+                      .lforge
+                    </span>
+
+                    {/* Physical Dimensions Chip */}
+                    <span className="text-xs font-mono bg-[#101218] px-2.5 py-1 rounded text-gray-200 border border-[#2b303e] font-semibold shrink-0">
+                      {width}×{height} mm
+                    </span>
+
+                    {/* Unsaved indicator */}
+                    {isActive && isModified && (
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse ml-0.5 shrink-0" title="Unsaved Changes" />
+                    )}
+
+                    {/* Close Tab Button */}
+                    {openDocuments && openDocuments.filter(Boolean).length > 1 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCloseDocumentTab?.(tDoc.id);
+                        }}
+                        className="ml-1.5 p-1 rounded-md hover:bg-[#2e3444] text-gray-400 hover:text-white transition-colors shrink-0"
+                        title="Close Template Tab"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+
+            {/* + New Document / Template Tab Button */}
+            {onNewDocumentTab && (
+              <button
+                onClick={onNewDocumentTab}
+                className="h-10 px-3.5 rounded-md hover:bg-[#232733] bg-[#181a24] border border-[#2d3243] text-gray-300 hover:text-blue-400 flex items-center space-x-1.5 text-xs font-semibold transition-colors"
+                title="Open Template / New Label Tab"
+              >
+                <Plus className="w-4 h-4 text-blue-400" />
+                <span className="hidden sm:inline">New Tab</span>
+              </button>
+            )}
           </div>
 
-          {/* Fit to Working Template Button (Enlarges template to fill entire editor) */}
-          <button
-            onClick={handleFitTemplate}
-            className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded text-[11px] font-medium flex items-center space-x-1 transition-colors shadow-sm"
-            title="Auto-scale working template to fit the editor section"
-          >
-            <Maximize2 className="w-3 h-3 text-blue-400" />
-            <span>Fit Template</span>
-          </button>
+          {/* Right: Quick Template Dropdown, Select/Pan tools, and Maximize */}
+          <div className="flex items-center space-x-2 pl-3">
+            {/* Quick Template Switcher Dropdown */}
+            {onSelectTemplate && (
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-400 text-xs font-medium hidden md:inline">Template:</span>
+                <select
+                  value={doc?.id || ''}
+                  onChange={(e) => {
+                    const found = (SAMPLE_TEMPLATES || []).find(t => t && t.id === e.target.value);
+                    if (found) onSelectTemplate(found);
+                  }}
+                  className="bg-[#1b1e27] border border-[#343a49] text-xs text-gray-100 rounded-md px-3 py-1.5 font-semibold hover:border-blue-500 focus:outline-none focus:border-blue-500 cursor-pointer h-9"
+                  title="Switch Active Label Template"
+                >
+                  {(SAMPLE_TEMPLATES || []).filter(Boolean).map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      {tpl.name} ({tpl.dimensions?.width ?? 0}×{tpl.dimensions?.height ?? 0}mm)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-          {/* Fit Width */}
-          <button
-            onClick={handleFitWidth}
-            className="px-2 py-0.5 hover:bg-[#282c38] text-gray-400 hover:text-gray-200 rounded text-[11px] transition-colors"
-            title="Scale template to fit viewport width"
-          >
-            Fit Width
-          </button>
-
-          {/* Fit Height */}
-          <button
-            onClick={handleFitHeight}
-            className="px-2 py-0.5 hover:bg-[#282c38] text-gray-400 hover:text-gray-200 rounded text-[11px] transition-colors"
-            title="Scale template to fit viewport height"
-          >
-            Fit Height
-          </button>
-
-          {/* 100% 1:1 Scale */}
-          <button
-            onClick={() => setZoom(1.0)}
-            className={`px-2 py-0.5 rounded text-[11px] transition-colors ${zoom === 1.0 ? 'bg-[#2b303e] text-white font-semibold' : 'hover:bg-[#282c38] text-gray-400 hover:text-gray-200'}`}
-            title="1:1 Actual physical scale"
-          >
-            100%
-          </button>
-        </div>
-
-        {/* Center: Ruler Options & Units */}
-        <div className="flex items-center space-x-2">
-          {/* Ruler Toggle */}
-          <button
-            onClick={() => setShowRulers?.(!showRulers)}
-            className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
-              showRulers
-                ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
-                : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
-            }`}
-            title="Toggle Physical Rulers (Ctrl+R)"
-          >
-            <Compass className="w-3 h-3 text-blue-400" />
-            <span>Rulers</span>
-          </button>
-
-          {/* Unit Selector Pills */}
-          <div className="flex items-center bg-[#222530] border border-[#313644] rounded p-0.5 space-x-0.5">
-            {(['mm', 'in', 'cm', 'pt'] as const).map((u) => (
+            {/* Select / Hand Pan Mode Selector */}
+            <div className="flex items-center bg-[#222530] border border-[#313644] rounded-md p-0.5 space-x-0.5 h-9">
               <button
-                key={u}
-                onClick={() => onUnitChange?.(u)}
-                className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
-                  unit === u
-                    ? 'bg-blue-600 text-white font-bold'
+                onClick={() => setActiveTool?.('select')}
+                className={`px-2.5 h-full rounded text-xs flex items-center space-x-1.5 transition-colors ${
+                  !isHandModeActive
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
                     : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
                 }`}
+                title="Select Tool (V)"
               >
-                {u}
+                <MousePointer className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Select</span>
               </button>
-            ))}
-          </div>
-
-          <span className="text-gray-600">|</span>
-
-          {/* Guides Toggle */}
-          <button
-            onClick={() => setShowGuides?.(!showGuides)}
-            className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
-              showGuides
-                ? 'bg-cyan-600/20 border-cyan-500/50 text-cyan-300'
-                : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
-            }`}
-            title="Toggle Guide Lines"
-          >
-            <Eye className="w-3 h-3 text-cyan-400" />
-            <span>Guides {guides.length > 0 && `(${guides.length})`}</span>
-          </button>
-
-          {/* Lock Guides */}
-          {guides.length > 0 && (
-            <button
-              onClick={() => setLockGuides?.(!lockGuides)}
-              className={`p-1 rounded text-gray-400 hover:text-gray-200 ${lockGuides ? 'text-amber-400 bg-amber-500/10' : 'hover:bg-[#282c38]'}`}
-              title={lockGuides ? 'Guides Locked' : 'Guides Unlocked'}
-            >
-              {lockGuides ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-            </button>
-          )}
-
-          {/* Clear Guides */}
-          {guides.length > 0 && (
-            <button
-              onClick={onClearGuides}
-              className="p-1 rounded text-gray-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-              title="Clear all guide lines"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          )}
-
-          <span className="text-gray-600">|</span>
-
-          {/* Snap to Grid / Guides */}
-          <button
-            onClick={() => setSnapToGrid?.(!snapToGrid)}
-            className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
-              snapToGrid
-                ? 'bg-amber-600/20 border-amber-500/50 text-amber-300'
-                : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
-            }`}
-            title="Snap to Grid"
-          >
-            <Magnet className="w-3 h-3 text-amber-400" />
-            <span>Snap Grid</span>
-          </button>
-
-          <button
-            onClick={() => setSnapToGuides?.(!snapToGuides)}
-            className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
-              snapToGuides
-                ? 'bg-cyan-600/20 border-cyan-500/50 text-cyan-300'
-                : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
-            }`}
-            title="Snap to Guides"
-          >
-            <Sliders className="w-3 h-3 text-cyan-400" />
-            <span>Snap Guides</span>
-          </button>
-        </div>
-
-        {/* Center-Right: Mode Selector (Select V vs Hand Tool H) & Multi-selection Status */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center bg-[#222530] border border-[#313644] rounded p-0.5 space-x-0.5">
-            <button
-              onClick={() => setActiveTool?.('select')}
-              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors ${
-                !isHandModeActive
-                  ? 'bg-blue-600 text-white font-medium shadow-xs'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
-              }`}
-              title="Select / Marquee Tool (V) - Click to select, drag on empty canvas to marquee-select multiple items"
-            >
-              <MousePointer className="w-3 h-3" />
-              <span>Select (V)</span>
-            </button>
-            <button
-              onClick={() => setActiveTool?.('pan')}
-              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 transition-colors ${
-                isHandModeActive
-                  ? 'bg-amber-600 text-white font-medium shadow-xs'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
-              }`}
-              title="Hand Pan Tool (H / Spacebar / Middle Click Drag) - Drag to pan canvas"
-            >
-              <Hand className="w-3 h-3" />
-              <span>Hand (H)</span>
-            </button>
-          </div>
-
-          {effectiveSelectedIds.length > 1 && (
-            <div className="flex items-center space-x-1 bg-blue-950/70 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded text-[11px] font-mono shadow-xs">
-              <Layers className="w-3 h-3 text-blue-400" />
-              <span>{effectiveSelectedIds.length} Selected</span>
               <button
-                onClick={() => handleSelectSingle(null)}
-                className="ml-1 text-blue-400 hover:text-blue-100 font-bold"
-                title="Deselect all"
+                onClick={() => setActiveTool?.('pan')}
+                className={`px-2.5 h-full rounded text-xs flex items-center space-x-1.5 transition-colors ${
+                  isHandModeActive
+                    ? 'bg-amber-600 text-white font-semibold shadow-xs'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
+                }`}
+                title="Hand Pan Tool (H / Spacebar)"
               >
-                ×
+                <Hand className="w-3.5 h-3.5" />
+                <span className="hidden lg:inline">Pan</span>
               </button>
             </div>
-          )}
+
+            {/* Maximize / Focus Mode Button */}
+            {onToggleMaximize && (
+              <button
+                onClick={onToggleMaximize}
+                className={`h-9 w-9 rounded-md border flex items-center justify-center transition-colors ${
+                  isMaximized
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'bg-[#222530] border-[#313644] text-gray-300 hover:text-white hover:bg-[#2c3140]'
+                }`}
+                title={isMaximized ? 'Restore Normal Workspace' : 'Maximize Editor Section (Focus Mode)'}
+              >
+                {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Right: Zoom slider & Maximize Viewport */}
-        <div className="flex items-center space-x-2">
-          {/* Grid display toggle */}
-          <button
-            onClick={() => setShowGrid?.(!showGrid)}
-            className={`p-1 rounded transition-colors ${showGrid ? 'text-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-gray-200 hover:bg-[#282c38]'}`}
-            title="Toggle Background Grid"
-          >
-            <Grid className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Margins toggle */}
-          <button
-            onClick={() => setShowMargins(!showMargins)}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition-colors ${
-              showMargins
-                ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
-            }`}
-            title="Toggle Printable Margin Outline"
-          >
-            Margins
-          </button>
-
-          <span className="text-gray-600">|</span>
-
-          {/* Zoom controls */}
-          <div className="flex items-center space-x-1">
+        {/* Tier 2: Viewport Sizing, Rulers, Guides, Grid & Zoom Strip */}
+        <div className="h-8 bg-[#181a22] px-3 flex items-center justify-between text-xs text-gray-300">
+          {/* Left: Fit & Scaling Controls */}
+          <div className="flex items-center space-x-2">
             <button
-              onClick={() => setZoom(z => Math.max(0.4, Number((z - 0.1).toFixed(2))))}
-              className="p-1 rounded hover:bg-[#282c38] text-gray-400 hover:text-white"
-              title="Zoom Out"
+              onClick={handleFitTemplate}
+              className="px-2.5 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded text-[11px] font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
+              title="Auto-scale working template to fit the editor section"
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              <Maximize2 className="w-3 h-3 text-blue-400" />
+              <span>Fit Template</span>
             </button>
-            <span className="font-mono text-gray-200 font-bold w-11 text-center text-[11px]">
-              {Math.round(zoom * 100)}%
-            </span>
+
             <button
-              onClick={() => setZoom(z => Math.min(3.0, Number((z + 0.1).toFixed(2))))}
-              className="p-1 rounded hover:bg-[#282c38] text-gray-400 hover:text-white"
-              title="Zoom In"
+              onClick={handleFitWidth}
+              className="px-2 py-0.5 hover:bg-[#282c38] text-gray-400 hover:text-gray-200 rounded text-[11px] transition-colors"
+              title="Scale template to fit viewport width"
             >
-              <ZoomIn className="w-3.5 h-3.5" />
+              Fit Width
             </button>
+
+            <button
+              onClick={handleFitHeight}
+              className="px-2 py-0.5 hover:bg-[#282c38] text-gray-400 hover:text-gray-200 rounded text-[11px] transition-colors"
+              title="Scale template to fit viewport height"
+            >
+              Fit Height
+            </button>
+
+            <button
+              onClick={() => setZoom(1.0)}
+              className={`px-2 py-0.5 rounded text-[11px] transition-colors ${zoom === 1.0 ? 'bg-[#2b303e] text-white font-semibold' : 'hover:bg-[#282c38] text-gray-400 hover:text-gray-200'}`}
+              title="1:1 Actual physical scale"
+            >
+              100%
+            </button>
+
+            <span className="text-gray-600">|</span>
+
+            {/* Printable Margin Indicator */}
+            <button
+              onClick={() => setShowMargins(!showMargins)}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
+                showMargins
+                  ? 'bg-blue-900/30 border-blue-500/40 text-blue-300'
+                  : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
+              }`}
+              title="Toggle Printable Margin Outline"
+            >
+              <Square className="w-3 h-3 text-blue-400" />
+              <span>Margins</span>
+            </button>
+
+            {effectiveSelectedIds.length > 1 && (
+              <div className="flex items-center space-x-1 bg-blue-950/70 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded text-[11px] font-mono shadow-xs">
+                <Layers className="w-3 h-3 text-blue-400" />
+                <span>{effectiveSelectedIds.length} Selected</span>
+                <button
+                  onClick={() => handleSelectSingle(null)}
+                  className="ml-1 text-blue-400 hover:text-blue-100 font-bold"
+                  title="Deselect all"
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
 
-          <span className="text-gray-600">|</span>
-
-          {/* Maximize / Focus Mode Button (Enlarges editor section to maximum width/height) */}
-          {onToggleMaximize && (
+          {/* Center/Right: Rulers, Units, Guides, Grid, Zoom */}
+          <div className="flex items-center space-x-2">
+            {/* Ruler Toggle */}
             <button
-              onClick={onToggleMaximize}
-              className={`p-1 rounded border transition-colors ${
-                isMaximized
-                  ? 'bg-blue-600 border-blue-500 text-white'
-                  : 'bg-[#222530] border-[#313644] text-gray-300 hover:text-white hover:bg-[#2c3140]'
+              onClick={() => setShowRulers?.(!showRulers)}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
+                showRulers
+                  ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                  : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
               }`}
-              title={isMaximized ? 'Restore Normal Workspace' : 'Maximize Editor Section (Focus Mode)'}
+              title="Toggle Physical Rulers (Ctrl+R)"
             >
-              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <Compass className="w-3 h-3 text-blue-400" />
+              <span>Rulers</span>
             </button>
-          )}
+
+            {/* Unit Selector Pills */}
+            <div className="flex items-center bg-[#222530] border border-[#313644] rounded p-0.5 space-x-0.5">
+              {(['mm', 'in', 'cm', 'pt'] as const).map((u) => (
+                <button
+                  key={u}
+                  onClick={() => onUnitChange?.(u)}
+                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
+                    unit === u
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
+                  }`}
+                >
+                  {u}
+                </button>
+              ))}
+            </div>
+
+            <span className="text-gray-600">|</span>
+
+            {/* Guides Toggle */}
+            <button
+              onClick={() => setShowGuides?.(!showGuides)}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
+                showGuides
+                  ? 'bg-cyan-600/20 border-cyan-500/50 text-cyan-300'
+                  : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
+              }`}
+              title="Toggle Guide Lines"
+            >
+              <Eye className="w-3 h-3 text-cyan-400" />
+              <span>Guides {guides.length > 0 && `(${guides.length})`}</span>
+            </button>
+
+            {/* Lock Guides */}
+            {guides.length > 0 && (
+              <button
+                onClick={() => setLockGuides?.(!lockGuides)}
+                className={`p-1 rounded text-gray-400 hover:text-gray-200 ${lockGuides ? 'text-amber-400 bg-amber-500/10' : 'hover:bg-[#282c38]'}`}
+                title={lockGuides ? 'Guides Locked' : 'Guides Unlocked'}
+              >
+                {lockGuides ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+              </button>
+            )}
+
+            {/* Clear Guides */}
+            {guides.length > 0 && (
+              <button
+                onClick={onClearGuides}
+                className="p-1 rounded text-gray-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                title="Clear all guide lines"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+
+            <span className="text-gray-600">|</span>
+
+            {/* Snap to Grid */}
+            <button
+              onClick={() => setSnapToGrid?.(!snapToGrid)}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
+                snapToGrid
+                  ? 'bg-amber-600/20 border-amber-500/50 text-amber-300'
+                  : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
+              }`}
+              title="Snap to Grid"
+            >
+              <Magnet className="w-3 h-3 text-amber-400" />
+              <span>Snap</span>
+            </button>
+
+            {/* Grid Toggle */}
+            <button
+              onClick={() => setShowGrid?.(!showGrid)}
+              className={`p-1 rounded transition-colors ${showGrid ? 'text-blue-400 bg-blue-500/10' : 'text-gray-400 hover:text-gray-200 hover:bg-[#282c38]'}`}
+              title="Toggle Background Grid"
+            >
+              <Grid className="w-3.5 h-3.5" />
+            </button>
+
+            <span className="text-gray-600">|</span>
+
+            {/* Zoom controls */}
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => setZoom(z => Math.max(0.4, Number((z - 0.1).toFixed(2))))}
+                className="p-1 rounded hover:bg-[#282c38] text-gray-400 hover:text-white"
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <span className="font-mono text-gray-200 font-bold w-11 text-center text-[11px]">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                onClick={() => setZoom(z => Math.min(3.0, Number((z + 0.1).toFixed(2))))}
+                className="p-1 rounded hover:bg-[#282c38] text-gray-400 hover:text-white"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
