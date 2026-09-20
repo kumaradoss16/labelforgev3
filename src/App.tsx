@@ -33,6 +33,7 @@ import {
 } from './services/sampleData';
 import { runPreflightValidation } from './services/preflightValidator';
 import { createLForgePackage, parseAndValidateLForgePackage } from './services/lforgePackage';
+import { renderLabelObjectContent } from './services/renderObjectContent';
 
 export const App: React.FC = () => {
   // Document state with undo/redo and multi-document tabs
@@ -482,9 +483,11 @@ export const App: React.FC = () => {
   };
 
   // Alignment & Distribution Helpers (supports both single object and multi-selection groups)
-  const handleAlign = (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'distribute-h' | 'distribute-v') => {
+  const handleAlign = (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'distribute-h' | 'distribute-v' | 'center-page-h' | 'center-page-v' | 'center-both') => {
     const activeIds = selectedObjectIds.length > 0 ? selectedObjectIds : (selectedObjectId ? [selectedObjectId] : []);
     const selectedObjs = document.objects.filter(o => activeIds.includes(o.id) && !o.locked);
+    const labelW = document.dimensions.width;
+    const labelH = document.dimensions.height;
 
     // Multi-object group alignment / distribution
     if (selectedObjs.length > 1) {
@@ -498,7 +501,7 @@ export const App: React.FC = () => {
         const last = sorted[sorted.length - 1];
         const totalObjWidth = sorted.slice(1, -1).reduce((sum, o) => sum + o.width, 0);
         const availableSpace = last.x - (first.x + first.width);
-        const gap = (availableSpace - totalObjWidth) / (sorted.length - 1);
+        const gap = Math.max(0, (availableSpace - totalObjWidth) / (sorted.length - 1));
         let currentX = first.x + first.width + gap;
         const posMap = new Map<string, number>();
         for (let i = 1; i < sorted.length - 1; i++) {
@@ -526,7 +529,7 @@ export const App: React.FC = () => {
         const last = sorted[sorted.length - 1];
         const totalObjHeight = sorted.slice(1, -1).reduce((sum, o) => sum + o.height, 0);
         const availableSpace = last.y - (first.y + first.height);
-        const gap = (availableSpace - totalObjHeight) / (sorted.length - 1);
+        const gap = Math.max(0, (availableSpace - totalObjHeight) / (sorted.length - 1));
         let currentY = first.y + first.height + gap;
         const posMap = new Map<string, number>();
         for (let i = 1; i < sorted.length - 1; i++) {
@@ -551,6 +554,40 @@ export const App: React.FC = () => {
       const groupCenterX = minX + (maxX - minX) / 2;
       const groupCenterY = minY + (maxY - minY) / 2;
 
+      // Group Page Centering
+      if (type === 'center-page-h' || type === 'center-both') {
+        const groupW = maxX - minX;
+        const targetStartX = Math.max(0, (labelW - groupW) / 2);
+        const dx = targetStartX - minX;
+        const targetStartY = type === 'center-both' ? Math.max(0, (labelH - (maxY - minY)) / 2) : minY;
+        const dy = targetStartY - minY;
+
+        const newObjects = document.objects.map(obj => {
+          if (!activeIds.includes(obj.id) || obj.locked) return obj;
+          return {
+            ...obj,
+            x: Number((obj.x + dx).toFixed(2)),
+            y: type === 'center-both' ? Number((obj.y + dy).toFixed(2)) : obj.y
+          };
+        });
+        pushHistory({ ...document, objects: newObjects });
+        showToast(`Centered ${selectedObjs.length} objects on label`);
+        return;
+      }
+
+      if (type === 'center-page-v') {
+        const groupH = maxY - minY;
+        const targetStartY = Math.max(0, (labelH - groupH) / 2);
+        const dy = targetStartY - minY;
+        const newObjects = document.objects.map(obj => {
+          if (!activeIds.includes(obj.id) || obj.locked) return obj;
+          return { ...obj, y: Number((obj.y + dy).toFixed(2)) };
+        });
+        pushHistory({ ...document, objects: newObjects });
+        showToast(`Centered ${selectedObjs.length} objects vertically on label`);
+        return;
+      }
+
       const newObjects = document.objects.map(obj => {
         if (!activeIds.includes(obj.id) || obj.locked) return obj;
         let newX = obj.x;
@@ -572,16 +609,20 @@ export const App: React.FC = () => {
 
     // Single object aligned relative to label edges / printable margins
     if (!selectedObject) return;
-    const labelW = document.dimensions.width;
-    const labelH = document.dimensions.height;
 
     let updated: Partial<LabelObject> = {};
     if (type === 'left') updated = { x: document.dimensions.marginLeft || 2 };
-    if (type === 'center') updated = { x: (labelW - selectedObject.width) / 2 };
-    if (type === 'right') updated = { x: labelW - selectedObject.width - (document.dimensions.marginRight || 2) };
+    if (type === 'center' || type === 'center-page-h') updated = { x: Number(((labelW - selectedObject.width) / 2).toFixed(2)) };
+    if (type === 'right') updated = { x: Number((labelW - selectedObject.width - (document.dimensions.marginRight || 2)).toFixed(2)) };
     if (type === 'top') updated = { y: document.dimensions.marginTop || 2 };
-    if (type === 'middle') updated = { y: (labelH - selectedObject.height) / 2 };
-    if (type === 'bottom') updated = { y: labelH - selectedObject.height - (document.dimensions.marginBottom || 2) };
+    if (type === 'middle' || type === 'center-page-v') updated = { y: Number(((labelH - selectedObject.height) / 2).toFixed(2)) };
+    if (type === 'bottom') updated = { y: Number((labelH - selectedObject.height - (document.dimensions.marginBottom || 2)).toFixed(2)) };
+    if (type === 'center-both') {
+      updated = {
+        x: Number(((labelW - selectedObject.width) / 2).toFixed(2)),
+        y: Number(((labelH - selectedObject.height) / 2).toFixed(2))
+      };
+    }
 
     handleUpdateObject(updated);
   };
@@ -896,6 +937,8 @@ export const App: React.FC = () => {
             activeDataSource={activeDataSource}
             counter={counter}
             onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
+            onAlign={handleAlign}
+            onZOrder={handleZOrder}
           />
         )}
       </div>
@@ -1034,6 +1077,39 @@ export const App: React.FC = () => {
           <span>{toastMessage}</span>
         </div>
       )}
+
+      {/* Physical 1:1 Vector Print Substrate for Browser & Thermal Spoolers */}
+      <div
+        id="labelforge-print-portal"
+        className="hidden print:block bg-white text-black overflow-hidden relative"
+        style={{
+          width: `${document.dimensions.width}${document.dimensions.unit}`,
+          height: `${document.dimensions.height}${document.dimensions.unit}`,
+          margin: 0,
+          padding: 0
+        }}
+      >
+        {document.objects.map((obj) => (
+          <div
+            key={obj.id}
+            style={{
+              position: 'absolute',
+              left: `${obj.x}${document.dimensions.unit}`,
+              top: `${obj.y}${document.dimensions.unit}`,
+              width: `${obj.width}${document.dimensions.unit}`,
+              height: `${obj.height}${document.dimensions.unit}`,
+              transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
+              transformOrigin: 'top left'
+            }}
+          >
+            {renderLabelObjectContent(
+              obj,
+              activeDataSource?.data?.[activeRecordIndex],
+              counter
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };

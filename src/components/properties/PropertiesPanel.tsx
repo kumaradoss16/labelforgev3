@@ -21,6 +21,15 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  Maximize,
+  Layers,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
+  ChevronsDown,
   FileText
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject } from '../../types/label';
@@ -34,6 +43,8 @@ interface PropertiesPanelProps {
   activeDataSource?: DataSourceDefinition;
   counter?: SerializationCounter;
   onOpenBarcodeWizard: () => void;
+  onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both') => void;
+  onZOrder?: (direction: 'forward' | 'backward' | 'front' | 'back') => void;
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -42,6 +53,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   activeDataSource,
   counter,
   onOpenBarcodeWizard,
+  onAlign,
+  onZOrder,
 }) => {
   if (!selectedObject) {
     return (
@@ -166,6 +179,109 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               />
             </div>
           </div>
+
+          {/* Quick Alignment to Canvas */}
+          {onAlign && (
+            <div className="pt-2 border-t border-[#252834]">
+              <div className="text-[10px] text-gray-400 mb-1.5 flex items-center justify-between">
+                <span>Align to Label</span>
+                <button
+                  onClick={() => onAlign('center-both')}
+                  className="text-[9px] text-blue-400 hover:text-blue-300 underline"
+                  title="Center horizontally and vertically on page"
+                >
+                  Center Both
+                </button>
+              </div>
+              <div className="grid grid-cols-6 gap-1 bg-[#16181f] p-1 rounded border border-[#2d313d]">
+                <button
+                  onClick={() => onAlign('left')}
+                  className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white flex items-center justify-center"
+                  title="Align Left (Margin)"
+                >
+                  <AlignLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => onAlign('center')}
+                  className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white flex items-center justify-center"
+                  title="Center Horizontally"
+                >
+                  <AlignCenter className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => onAlign('right')}
+                  className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white flex items-center justify-center"
+                  title="Align Right (Margin)"
+                >
+                  <AlignRight className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => onAlign('top')}
+                  className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white flex items-center justify-center"
+                  title="Align Top (Margin)"
+                >
+                  <AlignStartVertical className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => onAlign('middle')}
+                  className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white flex items-center justify-center"
+                  title="Center Vertically"
+                >
+                  <AlignCenterVertical className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => onAlign('bottom')}
+                  className="p-1 rounded hover:bg-blue-600/30 text-gray-300 hover:text-white flex items-center justify-center"
+                  title="Align Bottom (Margin)"
+                >
+                  <AlignEndVertical className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Layer Ordering / Z-Order */}
+          {onZOrder && (
+            <div className="pt-1">
+              <div className="text-[10px] text-gray-400 mb-1 flex items-center justify-between">
+                <span>Layer Stacking (Z-Index: {selectedObject.zIndex})</span>
+              </div>
+              <div className="grid grid-cols-4 gap-1">
+                <button
+                  onClick={() => onZOrder('front')}
+                  className="px-1.5 py-1 rounded bg-[#252834] hover:bg-[#323646] text-[10px] text-gray-300 hover:text-white flex items-center justify-center space-x-0.5"
+                  title="Bring to Front"
+                >
+                  <ChevronsUp className="w-3 h-3 text-blue-400" />
+                  <span>Front</span>
+                </button>
+                <button
+                  onClick={() => onZOrder('forward')}
+                  className="px-1.5 py-1 rounded bg-[#252834] hover:bg-[#323646] text-[10px] text-gray-300 hover:text-white flex items-center justify-center space-x-0.5"
+                  title="Bring Forward (+1)"
+                >
+                  <ArrowUp className="w-3 h-3 text-blue-400" />
+                  <span>Up</span>
+                </button>
+                <button
+                  onClick={() => onZOrder('backward')}
+                  className="px-1.5 py-1 rounded bg-[#252834] hover:bg-[#323646] text-[10px] text-gray-300 hover:text-white flex items-center justify-center space-x-0.5"
+                  title="Send Backward (-1)"
+                >
+                  <ArrowDown className="w-3 h-3 text-gray-400" />
+                  <span>Down</span>
+                </button>
+                <button
+                  onClick={() => onZOrder('back')}
+                  className="px-1.5 py-1 rounded bg-[#252834] hover:bg-[#323646] text-[10px] text-gray-300 hover:text-white flex items-center justify-center space-x-0.5"
+                  title="Send to Back"
+                >
+                  <ChevronsDown className="w-3 h-3 text-gray-400" />
+                  <span>Back</span>
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* 3. BARCODE SPECIFIC PROPERTIES */}

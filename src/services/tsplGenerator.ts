@@ -5,15 +5,37 @@
 import { LabelDocument, TextLabelObject, BarcodeLabelObject, ShapeLabelObject } from '../types/label';
 import { mmToDots } from './zplGenerator';
 
-export function generateTsplFromDocument(doc: LabelDocument, options?: { copies?: number; darkness?: number; speed?: number }): string {
+export function getTsplRotation(rotation?: number): number {
+  if (!rotation) return 0;
+  const norm = ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
+  return norm; // 0, 90, 180, 270
+}
+
+export function generateTsplFromDocument(
+  doc: LabelDocument,
+  options?: {
+    copies?: number;
+    darkness?: number;
+    speed?: number;
+    mediaType?: 'gap' | 'continuous' | 'black-mark';
+  }
+): string {
   const dpi = doc.dimensions.dpi || 300;
   const copies = options?.copies || 1;
   const darkness = options?.darkness !== undefined ? options.darkness : 10;
   const speed = options?.speed || 4;
+  const mediaType = options?.mediaType || 'gap';
+
+  const gapCommand =
+    mediaType === 'continuous'
+      ? 'GAP 0 mm, 0 mm'
+      : mediaType === 'black-mark'
+      ? 'BLINE 3 mm, 0 mm'
+      : 'GAP 3 mm, 0 mm';
 
   const lines: string[] = [
     `SIZE ${doc.dimensions.width} mm, ${doc.dimensions.height} mm`,
-    'GAP 3 mm, 0 mm',
+    gapCommand,
     `SPEED ${speed}`,
     `DENSITY ${darkness}`,
     'DIRECTION 1',
@@ -30,20 +52,21 @@ export function generateTsplFromDocument(doc: LabelDocument, options?: { copies?
     const yDots = mmToDots(obj.y, dpi);
     const wDots = mmToDots(obj.width, dpi);
     const hDots = mmToDots(obj.height, dpi);
+    const rot = getTsplRotation(obj.rotation);
 
     if (obj.type === 'text' || obj.type === 'rich-text') {
       const textObj = obj as TextLabelObject;
       const fontHeight = Math.max(1, Math.round(textObj.style.fontSize / 10));
-      lines.push(`TEXT ${xDots},${yDots},"3",0,${fontHeight},${fontHeight},"${textObj.text.replace(/"/g, '\\"')}"`);
+      lines.push(`TEXT ${xDots},${yDots},"3",${rot},${fontHeight},${fontHeight},"${textObj.text.replace(/"/g, '\\"')}"`);
     } else if (obj.type === 'barcode' || obj.type === 'qrcode' || obj.type === 'datamatrix') {
       const bObj = obj as BarcodeLabelObject;
       const hr = bObj.barcodeStyle.humanReadable ? 1 : 0;
       if (bObj.barcodeStyle.symbology === 'qr' || bObj.barcodeStyle.symbology === 'gs1-qr') {
-        lines.push(`QRCODE ${xDots},${yDots},M,4,A,0,"${bObj.value.replace(/"/g, '\\"')}"`);
+        lines.push(`QRCODE ${xDots},${yDots},M,4,A,${rot},"${bObj.value.replace(/"/g, '\\"')}"`);
       } else if (bObj.barcodeStyle.symbology === 'datamatrix' || bObj.barcodeStyle.symbology === 'gs1-datamatrix') {
         lines.push(`DMATRIX ${xDots},${yDots},${wDots},${hDots},"${bObj.value.replace(/"/g, '\\"')}"`);
       } else {
-        lines.push(`BARCODE ${xDots},${yDots},"128",${hDots},${hr},0,2,4,"${bObj.value}"`);
+        lines.push(`BARCODE ${xDots},${yDots},"128",${hDots},${hr},${rot},2,4,"${bObj.value}"`);
       }
     } else if (obj.type === 'rect') {
       const shape = obj as ShapeLabelObject;
@@ -58,6 +81,25 @@ export function generateTsplFromDocument(doc: LabelDocument, options?: { copies?
 
   lines.push(`PRINT ${copies},1`);
   return lines.join('\n');
+}
+
+/**
+ * Diagnostic & Calibration TSPL Commands
+ */
+export function generateTsplFeedCommand(): string {
+  return 'FORMFEED\n';
+}
+
+export function generateTsplCalibrateCommand(): string {
+  return 'GAP 3 mm, 0 mm\nCALIBRATE\n';
+}
+
+export function generateTsplTestPatternCommand(): string {
+  return 'SELFTEST\n';
+}
+
+export function generateTsplCutCommand(): string {
+  return 'CUT\n';
 }
 
 export function generateEplFromDocument(doc: LabelDocument, options?: { copies?: number; darkness?: number; speed?: number }): string {

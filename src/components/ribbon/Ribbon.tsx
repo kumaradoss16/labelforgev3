@@ -36,7 +36,12 @@ import {
   Sparkles,
   ArrowRightLeft,
   CheckSquare,
-  Server
+  Server,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, LabelDocument } from '../../types/label';
 import { FONT_GROUPS } from '../../services/fontFamilies';
@@ -150,6 +155,8 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
   const totalRecords = props.totalRecords ?? 0;
   const onPrevRecord = props.onPrevRecord ?? (() => {});
   const onNextRecord = props.onNextRecord ?? (() => {});
+  const onAlign = props.onAlign;
+  const onZOrder = props.onZOrder;
   const isText = selectedObject && (selectedObject.type === 'text' || selectedObject.type === 'rich-text');
   const textObj = isText ? (selectedObject as TextLabelObject) : null;
   const isBarcode = selectedObject && (selectedObject.type === 'barcode' || selectedObject.type === 'qrcode' || selectedObject.type === 'datamatrix');
@@ -456,6 +463,67 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
               <span className="text-[9px] uppercase tracking-wider text-gray-500 text-center mt-1">Arrange</span>
             </div>
 
+            {/* Align & Center Group */}
+            {onAlign && (
+              <div className="flex flex-col justify-between border-r border-[#353945] pr-3">
+                <div className="flex flex-col space-y-1 flex-1 justify-center">
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => onAlign('left')}
+                      disabled={!selectedObject}
+                      className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
+                      title="Align Left Edge"
+                    >
+                      <AlignLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onAlign('center')}
+                      disabled={!selectedObject}
+                      className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
+                      title="Align Horizontal Center"
+                    >
+                      <AlignCenter className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onAlign('right')}
+                      disabled={!selectedObject}
+                      className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
+                      title="Align Right Edge"
+                    >
+                      <AlignRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => onAlign('top')}
+                      disabled={!selectedObject}
+                      className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
+                      title="Align Top Edge"
+                    >
+                      <AlignStartVertical className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onAlign('middle')}
+                      disabled={!selectedObject}
+                      className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
+                      title="Align Vertical Center"
+                    >
+                      <AlignCenterVertical className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onAlign('bottom')}
+                      disabled={!selectedObject}
+                      className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
+                      title="Align Bottom Edge"
+                    >
+                      <AlignEndVertical className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <span className="text-[9px] uppercase tracking-wider text-gray-500 text-center mt-1">Align</span>
+              </div>
+            )}
+
             {/* Print Quick Action */}
             <div className="flex flex-col justify-between">
               <button
@@ -558,7 +626,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                   </div>
                 </div>
 
-                <div className="flex flex-col space-y-1">
+                <div className="flex flex-col space-y-1 border-r border-[#353945] pr-3">
                   <span className="text-[10px] text-gray-400">Transform:</span>
                   <div className="flex items-center space-x-1">
                     <button
@@ -583,6 +651,66 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                     </button>
                   </div>
                 </div>
+
+                {/* Alignment & Distribution */}
+                {onAlign && (
+                  <div className="flex flex-col space-y-1 border-r border-[#353945] pr-3">
+                    <span className="text-[10px] text-gray-400">Align to Canvas:</span>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => onAlign('left')}
+                        className="p-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200"
+                        title="Align Left (Margin)"
+                      >
+                        <AlignLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onAlign('center')}
+                        className="p-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200"
+                        title="Center Horizontally"
+                      >
+                        <AlignCenter className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onAlign('right')}
+                        className="p-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200"
+                        title="Align Right (Margin)"
+                      >
+                        <AlignRight className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="h-4 w-px bg-[#353945] mx-0.5" />
+                      <button
+                        onClick={() => onAlign('top')}
+                        className="p-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200"
+                        title="Align Top (Margin)"
+                      >
+                        <AlignStartVertical className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onAlign('middle')}
+                        className="p-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200"
+                        title="Center Vertically"
+                      >
+                        <AlignCenterVertical className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onAlign('bottom')}
+                        className="p-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200"
+                        title="Align Bottom (Margin)"
+                      >
+                        <AlignEndVertical className="w-3.5 h-3.5" />
+                      </button>
+                      <div className="h-4 w-px bg-[#353945] mx-0.5" />
+                      <button
+                        onClick={() => onAlign('center-both')}
+                        className="px-2 py-1 rounded bg-[#2a2e39] hover:bg-blue-600/40 text-blue-300 text-[10px] font-medium border border-blue-600/30"
+                        title="Center Horizontally & Vertically"
+                      >
+                        Center Page
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <span className="text-gray-400 italic">Select an object on the canvas to inspect and modify geometry.</span>

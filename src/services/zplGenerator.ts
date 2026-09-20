@@ -3,19 +3,40 @@
  * Compiles canonical LabelDocument into authentic ZPL commands for thermal printers
  */
 
-import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject } from '../types/label';
+import { LabelDocument, TextLabelObject, BarcodeLabelObject, ShapeLabelObject } from '../types/label';
 
 export function mmToDots(mm: number, dpi: number): number {
   return Math.round((mm * dpi) / 25.4);
 }
 
-export function generateZplFromDocument(doc: LabelDocument, options?: { copies?: number; darkness?: number; speed?: number }): string {
+export function getZplOrientation(rotation?: number): 'N' | 'R' | 'I' | 'B' {
+  if (!rotation) return 'N';
+  const norm = ((Math.round(rotation / 90) * 90) % 360 + 360) % 360;
+  if (norm === 90) return 'R';
+  if (norm === 180) return 'I';
+  if (norm === 270) return 'B';
+  return 'N';
+}
+
+export function generateZplFromDocument(
+  doc: LabelDocument,
+  options?: {
+    copies?: number;
+    darkness?: number;
+    speed?: number;
+    mediaType?: 'gap' | 'continuous' | 'black-mark';
+  }
+): string {
   const dpi = doc.dimensions.dpi || 300;
   const labelWidthDots = mmToDots(doc.dimensions.width, dpi);
   const labelLengthDots = mmToDots(doc.dimensions.height, dpi);
   const copies = options?.copies || 1;
   const darkness = options?.darkness !== undefined ? options.darkness : 15;
   const speed = options?.speed || 6;
+  const mediaType = options?.mediaType || 'gap';
+
+  const mediaCommand =
+    mediaType === 'continuous' ? '^MNN' : mediaType === 'black-mark' ? '^MNM' : '^MNY';
 
   const lines: string[] = [
     'CT~~CD,~CC^~CT~',
@@ -23,6 +44,7 @@ export function generateZplFromDocument(doc: LabelDocument, options?: { copies?:
     `^PW${labelWidthDots}`,
     `^LL${labelLengthDots}`,
     '^LH0,0',
+    mediaCommand,
     `^PR${speed},${speed}`,
     `^MD${darkness}`,
     '^PON',
@@ -40,6 +62,7 @@ export function generateZplFromDocument(doc: LabelDocument, options?: { copies?:
     const yDots = mmToDots(obj.y, dpi);
     const wDots = mmToDots(obj.width, dpi);
     const hDots = mmToDots(obj.height, dpi);
+    const orient = getZplOrientation(obj.rotation);
 
     lines.push(`^FX Object: ${obj.name} (${obj.type})`);
     lines.push(`^FO${xDots},${yDots}`);
@@ -48,11 +71,23 @@ export function generateZplFromDocument(doc: LabelDocument, options?: { copies?:
       const textObj = obj as TextLabelObject;
       const fontHeightDots = Math.max(15, Math.round(textObj.style.fontSize * (dpi / 72)));
       const fontWidthDots = Math.round(fontHeightDots * 0.75);
-      
-      // Select font or scalable Swiss 721
-      lines.push(`^A0N,${fontHeightDots},${fontWidthDots}`);
+
+      // Inverted white on dark text detection
+      const isWhiteText =
+        textObj.style.color?.toLowerCase() === '#ffffff' ||
+        textObj.style.color?.toLowerCase() === 'white' ||
+        textObj.style.color?.toLowerCase() === 'rgb(255,255,255)';
+
+      if (isWhiteText) {
+        lines.push('^FR'); // Field Reverse
+      }
+
+      // Select font with orientation
+      lines.push(`^A0${orient},${fontHeightDots},${fontWidthDots}`);
       if (textObj.style.wrap) {
-        lines.push(`^FB${wDots},5,0,${textObj.style.alignment === 'center' ? 'C' : textObj.style.alignment === 'right' ? 'R' : 'L'},0`);
+        const alignCode =
+          textObj.style.alignment === 'center' ? 'C' : textObj.style.alignment === 'right' ? 'R' : 'L';
+        lines.push(`^FB${wDots},5,0,${alignCode},0`);
       }
       lines.push(`^FD${textObj.text.replace(/\^/g, '_5E').replace(/~/g, '_7E')}^FS`);
     } else if (obj.type === 'barcode' || obj.type === 'qrcode' || obj.type === 'datamatrix') {
@@ -63,39 +98,39 @@ export function generateZplFromDocument(doc: LabelDocument, options?: { copies?:
       if (symbology === 'code128' || symbology === 'gs1-128') {
         // ^BCo,h,f,g,e,m (Code 128)
         lines.push(`^BY${Math.max(2, Math.round(wDots / 60))},3,${hDots}`);
-        lines.push(`^BCN,${hDots},${hrOption},N,N`);
+        lines.push(`^BC${orient},${hDots},${hrOption},N,N`);
         lines.push(`^FD>;>${bObj.value}^FS`);
       } else if (symbology === 'code39') {
         // ^B3o,e,h,f,g
         lines.push(`^BY${Math.max(2, Math.round(wDots / 50))},2.5,${hDots}`);
-        lines.push(`^B3N,N,${hDots},${hrOption},N`);
+        lines.push(`^B3${orient},N,${hDots},${hrOption},N`);
         lines.push(`^FD${bObj.value}^FS`);
       } else if (symbology === 'ean13') {
         lines.push(`^BY${Math.max(2, Math.round(wDots / 45))},3,${hDots}`);
-        lines.push(`^BEN,${hDots},${hrOption},N`);
+        lines.push(`^BE${orient},${hDots},${hrOption},N`);
         lines.push(`^FD${bObj.value}^FS`);
       } else if (symbology === 'upca') {
         lines.push(`^BY${Math.max(2, Math.round(wDots / 45))},3,${hDots}`);
-        lines.push(`^BUN,${hDots},${hrOption},N,Y`);
+        lines.push(`^BU${orient},${hDots},${hrOption},N,Y`);
         lines.push(`^FD${bObj.value}^FS`);
       } else if (symbology === 'qr' || symbology === 'gs1-qr') {
         // ^BQa,b,c,d,e (QR Code: model 2, magnification, ECC)
         const mag = Math.max(3, Math.min(10, Math.round(wDots / 35)));
-        lines.push(`^BQN,2,${mag},M,7`);
+        lines.push(`^BQ${orient},2,${mag},M,7`);
         lines.push(`^FDQA,${bObj.value}^FS`);
       } else if (symbology === 'datamatrix' || symbology === 'gs1-datamatrix') {
         // ^BXo,h,s,c,r,f,g (Data Matrix)
         const dim = Math.max(4, Math.round(wDots / 20));
-        lines.push(`^BXN,${dim},200`);
+        lines.push(`^BX${orient},${dim},200`);
         lines.push(`^FD${bObj.value}^FS`);
       } else if (symbology === 'pdf417') {
         lines.push(`^BY2,3,${hDots}`);
-        lines.push(`^B7N,${hDots},1,2,6,N`);
+        lines.push(`^B7${orient},${hDots},1,2,6,N`);
         lines.push(`^FD${bObj.value}^FS`);
       } else {
         // Fallback Code 128
         lines.push(`^BY2,3,${hDots}`);
-        lines.push(`^BCN,${hDots},${hrOption},N,N`);
+        lines.push(`^BC${orient},${hDots},${hrOption},N,N`);
         lines.push(`^FD${bObj.value}^FS`);
       }
     } else if (obj.type === 'rect') {
@@ -115,4 +150,23 @@ export function generateZplFromDocument(doc: LabelDocument, options?: { copies?:
   lines.push('^XZ');
 
   return lines.join('\n');
+}
+
+/**
+ * Diagnostic & Calibration ZPL Commands
+ */
+export function generateZplFeedCommand(): string {
+  return '^XA^PH^XZ';
+}
+
+export function generateZplCalibrateCommand(): string {
+  return '~JC\n^XA^JUS^XZ';
+}
+
+export function generateZplTestPatternCommand(): string {
+  return '~WC';
+}
+
+export function generateZplCutCommand(): string {
+  return '^XA^CN^XZ';
 }
