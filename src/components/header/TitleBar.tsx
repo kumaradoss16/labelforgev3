@@ -17,7 +17,8 @@ import {
   Sparkles,
   FileBox,
   FolderOpen,
-  Monitor
+  Monitor,
+  History
 } from 'lucide-react';
 import { isDesktopApp } from '../../services/desktopBridge';
 
@@ -35,6 +36,7 @@ interface TitleBarProps {
   onOpenFontManager?: () => void;
   onOpenTemplateManager?: () => void;
   onOpenBarTenderManager?: () => void;
+  onOpenPrintHistory?: () => void;
   onOpen?: () => void;
   onPrint?: () => void;
   currentUserRole?: string;
@@ -54,6 +56,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onOpenFontManager,
   onOpenTemplateManager,
   onOpenBarTenderManager,
+  onOpenPrintHistory,
   onOpen,
   onPrint,
   currentUserRole = 'PRINT_MANAGER',
@@ -117,6 +120,16 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           >
             <Printer className="w-3.5 h-3.5 text-emerald-400" />
           </button>
+
+          {onOpenPrintHistory && (
+            <button
+              onClick={onOpenPrintHistory}
+              title="Batch Print Job History & Direct Re-Print"
+              className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-blue-300 transition-colors"
+            >
+              <History className="w-3.5 h-3.5 text-blue-400" />
+            </button>
+          )}
 
           {onOpenBarTenderManager && (
             <button

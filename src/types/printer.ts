@@ -123,6 +123,17 @@ export interface PrintJob {
   originalPrintJobId?: string;
   reprintReason?: string;
   auditReference?: string;
+  // Technical Metadata recorded at time of print
+  dpi?: number;
+  paperSize?: string;
+  inkLevel?: number; // 0 - 100 percentage (ribbon or ink level)
+  ribbonLevel?: number; // 0 - 100 percentage
+  mediaRollRemaining?: number; // 0 - 100 percentage
+  printheadHealth?: number; // 0 - 100 percentage
+  printSpeed?: number; // inches/sec
+  darkness?: number; // 0 - 30 burn setting
+  printTechnology?: PrintTechnology;
+  mediaType?: 'gap' | 'continuous' | 'black-mark';
 }
 
 export type AuditAction =

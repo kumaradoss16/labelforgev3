@@ -41,7 +41,8 @@ import {
   AlignCenterVertical,
   AlignEndVertical,
   AlignHorizontalDistributeCenter,
-  AlignVerticalDistributeCenter
+  AlignVerticalDistributeCenter,
+  History
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, LabelDocument } from '../../types/label';
 import { FONT_GROUPS } from '../../services/fontFamilies';
@@ -102,6 +103,7 @@ interface RibbonProps {
   onZOrder?: (action: any) => void;
   onSelectTemplate?: (template: any) => void;
   onOpenBarTenderManager?: () => void;
+  onOpenPrintHistory?: () => void;
 }
 
 export const Ribbon: React.FC<RibbonProps> = (props) => {
@@ -524,17 +526,33 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
               </div>
             )}
 
-            {/* Print Quick Action */}
-            <div className="flex flex-col justify-between">
-              <button
-                onClick={onOpenPrintDialog}
-                className="flex flex-col items-center justify-center px-3 py-1 rounded bg-emerald-800/40 hover:bg-emerald-700/60 border border-emerald-600/50 text-emerald-200 transition-colors flex-1"
-                title="Send to Thermal or Spooler (Ctrl+P)"
-              >
-                <Printer className="w-5 h-5 text-emerald-400 mb-0.5" />
-                <span className="text-[10px] font-bold">Print Job</span>
-              </button>
-              <span className="text-[9px] uppercase tracking-wider text-emerald-500 text-center mt-1">Dispatch</span>
+            {/* Print Quick Action & Batch History */}
+            <div className="flex items-center space-x-1 border-l border-[#353945] pl-3">
+              <div className="flex flex-col justify-between h-full">
+                <button
+                  onClick={onOpenPrintDialog}
+                  className="flex flex-col items-center justify-center px-3 py-1 rounded bg-emerald-800/40 hover:bg-emerald-700/60 border border-emerald-600/50 text-emerald-200 transition-colors flex-1"
+                  title="Send to Thermal or Spooler (Ctrl+P)"
+                >
+                  <Printer className="w-5 h-5 text-emerald-400 mb-0.5" />
+                  <span className="text-[10px] font-bold">Print Job</span>
+                </button>
+                <span className="text-[9px] uppercase tracking-wider text-emerald-500 text-center mt-1">Dispatch</span>
+              </div>
+
+              {props.onOpenPrintHistory && (
+                <div className="flex flex-col justify-between h-full">
+                  <button
+                    onClick={props.onOpenPrintHistory}
+                    className="flex flex-col items-center justify-center px-2.5 py-1 rounded bg-blue-900/30 hover:bg-blue-800/50 border border-blue-600/40 text-blue-200 transition-colors flex-1"
+                    title="View Batch Print History & Re-Print to Industrial Hardware"
+                  >
+                    <History className="w-5 h-5 text-blue-400 mb-0.5" />
+                    <span className="text-[10px] font-bold">Job History</span>
+                  </button>
+                  <span className="text-[9px] uppercase tracking-wider text-blue-400 text-center mt-1">Re-Print</span>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -916,6 +934,17 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
             >
               Print Dispatch Workstation...
             </button>
+
+            {props.onOpenPrintHistory && (
+              <button
+                onClick={props.onOpenPrintHistory}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-[#222734] hover:bg-[#2b3142] border border-[#343b4f] text-xs text-gray-200 font-medium"
+              >
+                <History className="w-3.5 h-3.5 text-blue-400" />
+                <span>Batch Print History &amp; Re-Print...</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenFontManager}
               className="px-3 py-1.5 rounded bg-[#2e3340] hover:bg-[#383e4d] text-xs text-gray-200"

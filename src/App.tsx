@@ -17,6 +17,7 @@ import { WorkflowDesignerModal } from './components/modals/WorkflowDesignerModal
 import { ShortcutsModal } from './components/modals/ShortcutsModal';
 import { TemplateManagerModal } from './components/modals/TemplateManagerModal';
 import { BarTenderManagerModal } from './components/modals/BarTenderManagerModal';
+import { BatchPrintHistoryModal } from './components/modals/BatchPrintHistoryModal';
 
 // Types & Services
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
@@ -129,6 +130,7 @@ export const App: React.FC = () => {
   const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
+  const [isPrintHistoryModalOpen, setIsPrintHistoryModalOpen] = useState(false);
 
   // Notification toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -863,6 +865,9 @@ export const App: React.FC = () => {
         case 'printer:bartender':
           setIsBarTenderModalOpen(true);
           break;
+        case 'print:history':
+          setIsPrintHistoryModalOpen(true);
+          break;
         case 'help:shortcuts':
           setIsShortcutsModalOpen(true);
           break;
@@ -889,6 +894,7 @@ export const App: React.FC = () => {
         onOpenFontManager={() => setIsFontModalOpen(true)}
         onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
         onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
+        onOpenPrintHistory={() => setIsPrintHistoryModalOpen(true)}
         currentUserRole={currentUserRole}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -913,6 +919,7 @@ export const App: React.FC = () => {
         onOpenPrintDialog={() => setIsPrintModalOpen(true)}
         onOpenPrintPreview={() => setIsPrintModalOpen(true)}
         onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
+        onOpenPrintHistory={() => setIsPrintHistoryModalOpen(true)}
         onOpenDatabaseManager={() => setIsDatabaseModalOpen(true)}
         onOpenFontManager={() => setIsFontModalOpen(true)}
         onOpenWorkflowDesigner={() => setIsWorkflowModalOpen(true)}
@@ -1091,6 +1098,7 @@ export const App: React.FC = () => {
             : selectedObject?.name
         }
         isModified={isModified}
+        onOpenPrintHistory={() => setIsPrintHistoryModalOpen(true)}
       />
 
       {/* ================= MODALS ================= */}
@@ -1133,6 +1141,24 @@ export const App: React.FC = () => {
           const prn = printers.find(p => p.id === id);
           if (prn) showToast(`Active dispatch target set to: ${prn.name}`);
         }}
+      />
+
+      <BatchPrintHistoryModal
+        isOpen={isPrintHistoryModalOpen}
+        onClose={() => setIsPrintHistoryModalOpen(false)}
+        printJobs={printJobs}
+        printers={printers}
+        activePrinterId={activePrinterId}
+        onSelectPrinter={(id) => {
+          setActivePrinterId(id);
+          const prn = printers.find(p => p.id === id);
+          if (prn) showToast(`Active dispatch target set to: ${prn.name}`);
+        }}
+        onUpdatePrintJobs={setPrintJobs}
+        onAddAuditLog={(log) => setAuditLogs(prev => [log, ...prev])}
+        currentUserRole={currentUserRole}
+        onShowToast={showToast}
+        activeDocument={document}
       />
 
       <DatabaseManagerModal

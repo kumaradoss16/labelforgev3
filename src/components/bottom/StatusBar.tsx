@@ -7,7 +7,8 @@ import {
   CheckCircle,
   Wifi,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  History
 } from 'lucide-react';
 import { LabelDimensions } from '../../types/label';
 import { PrinterProfile } from '../../types/printer';
@@ -25,6 +26,7 @@ interface StatusBarProps {
   setShowGrid: (v: boolean) => void;
   selectedObjectName?: string;
   isModified: boolean;
+  onOpenPrintHistory?: () => void;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -40,6 +42,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   setShowGrid,
   selectedObjectName,
   isModified,
+  onOpenPrintHistory,
 }) => {
   const widthIn = (dimensions.width / 25.4).toFixed(2);
   const heightIn = (dimensions.height / 25.4).toFixed(2);
@@ -79,15 +82,19 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
       {/* Right items: Printer, DPI, Snap, Grid, Document State, Zoom */}
       <div className="flex items-center space-x-3">
-        {/* Active Printer */}
-        <div className="flex items-center space-x-1.5">
-          <Printer className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-gray-300 font-medium">{activePrinter.name}</span>
-          <span className="px-1 py-0.2 rounded bg-[#252834] font-mono text-[10px] text-gray-400">
+        {/* Active Printer with Quick History Trigger */}
+        <button
+          onClick={onOpenPrintHistory}
+          className="flex items-center space-x-1.5 hover:bg-[#252834] px-1.5 py-0.5 rounded transition-colors group cursor-pointer"
+          title="Click to view Batch Print History & Industrial Queue"
+        >
+          <Printer className="w-3.5 h-3.5 text-blue-400 group-hover:text-blue-300" />
+          <span className="text-gray-300 font-medium group-hover:text-white">{activePrinter.name}</span>
+          <span className="px-1 py-0.2 rounded bg-[#252834] group-hover:bg-[#323646] font-mono text-[10px] text-gray-400 group-hover:text-gray-200">
             {activePrinter.dpi} DPI ({activePrinter.language})
           </span>
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Printer Ready" />
-        </div>
+        </button>
 
         <span className="text-gray-600">|</span>
 
