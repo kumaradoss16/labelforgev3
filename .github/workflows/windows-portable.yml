@@ -1,0 +1,66 @@
+name: LabelForge Windows Portable Build
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: labelforge-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-portable:
+    name: Build Windows Portable EXE
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build portable Windows application
+        run: npm run dist:portable
+
+      - name: Verify portable EXE
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path "release" -Filter "*portable.exe" -File
+          if ($files.Count -eq 0) {
+            Write-Error "Portable EXE was not found in release/"
+            exit 1
+          }
+
+          $files | ForEach-Object {
+            Write-Host "Built: $($_.FullName)"
+            Write-Host "Size: $([math]::Round($_.Length / 1MB, 2)) MB"
+          }
+
+      - name: Upload portable EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LabelForge-Windows-Portable
+          path: release/*portable.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*portable.exe
