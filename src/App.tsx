@@ -34,6 +34,14 @@ import {
 import { runPreflightValidation } from './services/preflightValidator';
 import { createLForgePackage, parseAndValidateLForgePackage } from './services/lforgePackage';
 import { renderLabelObjectContent } from './services/renderObjectContent';
+import {
+  isDesktopApp,
+  desktopOpenProject,
+  desktopSaveProject,
+  desktopSaveProjectAs,
+  desktopGetRecentProjects,
+  subscribeToDesktopMenu
+} from './services/desktopBridge';
 
 export const App: React.FC = () => {
   // Document state with undo/redo and multi-document tabs
@@ -69,6 +77,7 @@ export const App: React.FC = () => {
   const [historyPast, setHistoryPast] = useState<LabelDocument[]>([]);
   const [historyFuture, setHistoryFuture] = useState<LabelDocument[]>([]);
   const [isModified, setIsModified] = useState(false);
+  const [currentFilePath, setCurrentFilePath] = useState<string | undefined>(undefined);
 
   // Selection & Tools
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -641,7 +650,19 @@ export const App: React.FC = () => {
   };
 
   // Document Save / Load (.lforge Package + .btw.json support)
-  const handleSaveDocument = () => {
+  const handleSaveDocument = async () => {
+    if (isDesktopApp()) {
+      const res = await desktopSaveProject(document, currentFilePath);
+      if (res.success) {
+        if (res.filePath) setCurrentFilePath(res.filePath);
+        setIsModified(false);
+        showToast(`Template saved to: ${res.filePath}`);
+      } else if (res.error && res.error !== 'Canceled by user') {
+        showToast(`Save failed: ${res.error}`);
+      }
+      return;
+    }
+
     const pkg = createLForgePackage(document);
     const json = JSON.stringify(pkg, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -655,7 +676,33 @@ export const App: React.FC = () => {
     showToast(`Template exported to ${document.name.replace(/\s+/g, '_')}.lforge (Checksum: ${pkg.manifest.checksum})`);
   };
 
-  const handleOpenDocument = () => {
+  const handleSaveDocumentAs = async () => {
+    if (isDesktopApp()) {
+      const res = await desktopSaveProjectAs(document);
+      if (res.success && res.filePath) {
+        setCurrentFilePath(res.filePath);
+        setIsModified(false);
+        showToast(`Template saved as: ${res.filePath}`);
+      }
+      return;
+    }
+    handleSaveDocument();
+  };
+
+  const handleOpenDocument = async () => {
+    if (isDesktopApp()) {
+      const res = await desktopOpenProject();
+      if (res.success && res.document) {
+        pushHistory(res.document);
+        setCurrentFilePath(res.filePath);
+        setSelectedObjectId(null);
+        showToast(`Successfully opened "${res.document.name}" (${res.filePath})`);
+      } else if (res.error && res.error !== 'Canceled by user') {
+        showToast(`Open failed: ${res.error}`);
+      }
+      return;
+    }
+
     const input = window.document.createElement('input');
     input.type = 'file';
     input.accept = '.lforge,.json';
@@ -744,7 +791,14 @@ export const App: React.FC = () => {
         handleRedo();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        handleSaveDocument();
+        if (e.shiftKey) handleSaveDocumentAs();
+        else handleSaveDocument();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        handleOpenDocument();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleNewDocumentTab();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         setIsPrintModalOpen(true);
@@ -758,7 +812,68 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleSaveDocument, handleDuplicateObject]);
+  }, [handleUndo, handleRedo, handleSaveDocument, handleSaveDocumentAs, handleOpenDocument, handleNewDocumentTab, handleDuplicateObject]);
+
+  // Subscribe to native Electron desktop menu actions
+  useEffect(() => {
+    const unsubscribe = subscribeToDesktopMenu((action) => {
+      switch (action) {
+        case 'file:new':
+          handleNewDocumentTab();
+          break;
+        case 'file:open':
+          handleOpenDocument();
+          break;
+        case 'file:save':
+          handleSaveDocument();
+          break;
+        case 'file:save-as':
+          handleSaveDocumentAs();
+          break;
+        case 'print:open-dialog':
+          setIsPrintModalOpen(true);
+          break;
+        case 'edit:undo':
+          handleUndo();
+          break;
+        case 'edit:redo':
+          handleRedo();
+          break;
+        case 'view:zoom-in':
+          setZoom(z => Math.min(3.0, Number((z + 0.15).toFixed(2))));
+          break;
+        case 'view:zoom-out':
+          setZoom(z => Math.max(0.25, Number((z - 0.15).toFixed(2))));
+          break;
+        case 'view:zoom-reset':
+          setZoom(1.0);
+          break;
+        case 'project:preflight': {
+          const errCount = diagnostics.filter(d => d.severity === 'error' || d.severity === 'blocker').length;
+          const warnCount = diagnostics.filter(d => d.severity === 'warning').length;
+          showToast(`Preflight Diagnostics: ${errCount} Errors, ${warnCount} Warnings`);
+          break;
+        }
+        case 'project:database':
+          setIsDatabaseModalOpen(true);
+          break;
+        case 'project:templates':
+          setIsTemplateManagerOpen(true);
+          break;
+        case 'printer:bartender':
+          setIsBarTenderModalOpen(true);
+          break;
+        case 'help:shortcuts':
+          setIsShortcutsModalOpen(true);
+          break;
+        case 'help:about':
+          showToast('LabelForge Studio Enterprise v3.0.0 (Windows Native Engine)');
+          break;
+      }
+    });
+
+    return () => unsubscribe();
+  }, [handleNewDocumentTab, handleOpenDocument, handleSaveDocument, handleSaveDocumentAs, handleUndo, handleRedo, diagnostics]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#14161b] text-white overflow-hidden font-sans select-none">

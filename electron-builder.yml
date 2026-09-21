@@ -1,0 +1,43 @@
+appId: com.devspire.labelforge
+productName: LabelForge
+copyright: Copyright © 2026 LabelForge Systems
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: assets/icons/icon.ico
+  artifactName: "${productName} Setup ${version}.${ext}"
+  fileAssociations:
+    - ext: lforge
+      name: LabelForge Project File
+      description: LabelForge Enterprise Label Design Package
+      role: Editor
+      icon: assets/icons/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: LabelForge Studio
+  installerIcon: assets/icons/icon.ico
+  uninstallerIcon: assets/icons/icon.ico
+  uninstallDisplayName: LabelForge Studio Enterprise
+
+portable:
+  artifactName: "${productName}-${version}-portable.exe"

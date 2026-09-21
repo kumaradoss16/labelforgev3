@@ -15,8 +15,11 @@ import {
   Database,
   Layers,
   Sparkles,
-  FileBox
+  FileBox,
+  FolderOpen,
+  Monitor
 } from 'lucide-react';
+import { isDesktopApp } from '../../services/desktopBridge';
 
 interface TitleBarProps {
   documentName: string;
@@ -72,6 +75,15 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
         {/* Quick Access Toolbar Icons */}
         <div className="flex items-center space-x-0.5 pl-1">
+          {onOpen && (
+            <button
+              onClick={onOpen}
+              title="Open Template (.lforge) (Ctrl+O)"
+              className="p-1 rounded hover:bg-[#2e333d] text-[#a0a5b1] hover:text-white transition-colors"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
+            </button>
+          )}
           <button
             onClick={onSave}
             title="Save Template (.lforge) (Ctrl+S)"
@@ -171,6 +183,16 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span>BarTender Integration Online</span>
         </span>
+        {isDesktopApp() ? (
+          <span className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-blue-950/70 border border-blue-600/60 text-blue-300 text-[10px] font-mono">
+            <Monitor className="w-3 h-3 text-blue-400" />
+            <span>ELECTRON DESKTOP v3.0</span>
+          </span>
+        ) : (
+          <span className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-zinc-400 text-[10px] font-mono">
+            <span>WEB ENVIRONMENT</span>
+          </span>
+        )}
       </div>
 
       {/* Right: Windows Window Controls */}
@@ -188,8 +210,13 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <Square className="w-2.5 h-2.5" />
         </button>
         <button
+          onClick={() => {
+            if (isDesktopApp()) {
+              window.electronAPI?.app.quit();
+            }
+          }}
           className="w-7 h-6 flex items-center justify-center hover:bg-red-600 text-gray-400 hover:text-white transition-colors rounded-sm"
-          title="Close"
+          title="Close (Alt+F4)"
         >
           <X className="w-3.5 h-3.5" />
         </button>

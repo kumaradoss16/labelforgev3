@@ -29,6 +29,7 @@ import {
   validateBarcodeData,
   formatBarTenderIntegrationPayload
 } from '../../services/barTenderPrintService';
+import { isDesktopApp, desktopPrintLabel } from '../../services/desktopBridge';
 
 interface PrintModalProps {
   isOpen: boolean;
@@ -114,7 +115,62 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     setIsSubmitting(true);
     setDispatchSuccess(null);
 
-    // Simulate enterprise BarTender service handoff
+    if (isDesktopApp()) {
+      desktopPrintLabel({
+        printerName: activePrinter.systemPrinterName || activePrinter.name,
+        printerType: activePrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+        copies,
+        rawPayload: generatedCode,
+        jobName: `${doc.name} - Batch`
+      }).then(res => {
+        setIsSubmitting(false);
+        const jobId = res.jobId || `JOB-${Math.floor(100000 + Math.random() * 900000)}`;
+        setDispatchSuccess({
+          id: jobId,
+          status: res.success ? 'SENT_TO_PRINT_SERVICE' : 'DEVICE_ERROR',
+          note: res.success
+            ? `NATIVE DISPATCH SUCCESS — Dispatched ${res.bytesWritten || generatedCode.length} bytes to ${activePrinter.name} (Windows Queue / Port 9100)`
+            : `DISPATCH FAILED: ${res.error?.message || 'Printer rejected job'}`
+        });
+
+        if (res.success) {
+          const job: PrintJob = {
+            id: jobId,
+            jobNumber: `PJ-${jobId.slice(-6)}`,
+            jobType: 'ON_DEMAND',
+            jobName: `${doc.name} - Native Desktop`,
+            requestedByUserId: 'usr-current',
+            requestedByUserName: activeRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
+            userRole: activeRole,
+            templateId: barTenderTemplate?.id || doc.id,
+            templateName: doc.name,
+            templateVersion: doc.metadata.version || 1,
+            printerId: activePrinter.id,
+            printerName: activePrinter.displayName || activePrinter.name,
+            requestedPrinterId: activePrinter.id,
+            actualPrinterId: activePrinter.id,
+            actualPrinterName: activePrinter.name,
+            fallbackPrinterUsed: false,
+            copies,
+            recordCount: totalRecordsToPrint,
+            labelQuantity: totalLabels,
+            labelDataJson: templateVariables,
+            status: 'SENT_TO_PRINT_SERVICE',
+            createdAt: new Date().toLocaleTimeString(),
+            sentAt: new Date().toLocaleTimeString(),
+            outputLanguage: activePrinter.language,
+            rawPayloadPreview: generatedCode.slice(0, 500),
+            integrationMethod: 'Electron Native Thermal Port (Port 9100 / Spooler)',
+            integrationResponseSummary: 'Direct native hardware handoff verified',
+            retryCount: 0,
+          };
+          onJobDispatched(job);
+        }
+      });
+      return;
+    }
+
+    // Simulate enterprise BarTender service handoff in web mode
     setTimeout(() => {
       setIsSubmitting(false);
       const jobId = `JOB-${Math.floor(100000 + Math.random() * 900000)}`;
