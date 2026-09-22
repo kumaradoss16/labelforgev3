@@ -18,6 +18,7 @@ import { ShortcutsModal } from './components/modals/ShortcutsModal';
 import { TemplateManagerModal } from './components/modals/TemplateManagerModal';
 import { BarTenderManagerModal } from './components/modals/BarTenderManagerModal';
 import { BatchPrintHistoryModal } from './components/modals/BatchPrintHistoryModal';
+import { AboutModal } from './components/modals/AboutModal';
 
 // Types & Services
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
@@ -131,6 +132,7 @@ export const App: React.FC = () => {
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [isPrintHistoryModalOpen, setIsPrintHistoryModalOpen] = useState(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
   // Notification toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -872,7 +874,7 @@ export const App: React.FC = () => {
           setIsShortcutsModalOpen(true);
           break;
         case 'help:about':
-          showToast('LabelForge Studio Enterprise v3.0.0 (Windows Native Engine)');
+          setIsAboutModalOpen(true);
           break;
       }
     });
@@ -895,6 +897,7 @@ export const App: React.FC = () => {
         onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
         onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
         onOpenPrintHistory={() => setIsPrintHistoryModalOpen(true)}
+        onOpenAbout={() => setIsAboutModalOpen(true)}
         currentUserRole={currentUserRole}
         onUndo={handleUndo}
         onRedo={handleRedo}
@@ -926,6 +929,7 @@ export const App: React.FC = () => {
         onOpenWorkflowManager={() => setIsWorkflowModalOpen(true)}
         onOpenPrintModal={() => setIsPrintModalOpen(true)}
         onOpenShortcuts={() => setIsShortcutsModalOpen(true)}
+        onOpenAbout={() => setIsAboutModalOpen(true)}
         showRulers={showRulers}
         setShowRulers={setShowRulers}
         showGrid={showGrid}
@@ -1209,6 +1213,11 @@ export const App: React.FC = () => {
           setIsTemplateManagerOpen(false);
           showToast(`Loaded Template Package: ${doc.name}`);
         }}
+      />
+
+      <AboutModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
       />
 
       {/* Notification Toast */}

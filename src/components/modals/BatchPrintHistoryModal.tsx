@@ -107,6 +107,24 @@ export const isJobPending = (job: PrintJob): boolean => {
 };
 
 /**
+ * Pure helper to filter print jobs by status:
+ * 'ALL' | 'SUCCESS' | 'COMPLETED' | 'FAILED' | 'PENDING' | 'CANCELLED'
+ */
+export const filterPrintJobsByStatus = (jobs: PrintJob[], status: string): PrintJob[] => {
+  if (!status || status === 'ALL') return jobs;
+  if (status === 'SUCCESS' || status === 'COMPLETED') {
+    return jobs.filter((job) => job.status === 'COMPLETED');
+  }
+  if (status === 'FAILED') {
+    return jobs.filter((job) => job.status === 'FAILED');
+  }
+  if (status === 'PENDING') {
+    return jobs.filter(isJobPending);
+  }
+  return jobs.filter((job) => job.status === status);
+};
+
+/**
  * Pure helper to reorder pending jobs up, down, or to the front (top) of the spooler queue.
  */
 export const reorderPendingJobs = (
@@ -331,10 +349,20 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
   } | null>(null);
   const [copiedPayload, setCopiedPayload] = useState(false);
 
+  // Job status metrics for header status filter dropdown and badges
+  const totalJobsCount = printJobs.length;
+  const successJobsCount = useMemo(() => {
+    return printJobs.filter((j) => j.status === 'COMPLETED').length;
+  }, [printJobs]);
+  const failedJobsCount = useMemo(() => {
+    return printJobs.filter((j) => j.status === 'FAILED').length;
+  }, [printJobs]);
+
   // List of active pending print jobs
   const pendingJobs = useMemo(() => {
     return printJobs.filter(isJobPending);
   }, [printJobs]);
+  const pendingJobsCount = pendingJobs.length;
 
   // Queue Action Handlers
   const handleCancelJob = (job: PrintJob, e?: React.MouseEvent) => {
@@ -486,12 +514,16 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
     return printJobs.filter((job) => {
       const matchQuery = matchesPrintJobSearchQuery(job, searchQuery);
 
-      // Status Filter (e.g. ALL, COMPLETED, SENT_TO_PRINT_SERVICE / PENDING, FAILED)
+      // Status Filter (ALL, SUCCESS / COMPLETED, FAILED, PENDING, CANCELLED, etc.)
       let matchStatus = true;
       if (statusFilter === 'ALL') {
         matchStatus = true;
+      } else if (statusFilter === 'SUCCESS' || statusFilter === 'COMPLETED') {
+        matchStatus = job.status === 'COMPLETED';
+      } else if (statusFilter === 'FAILED') {
+        matchStatus = job.status === 'FAILED';
       } else if (statusFilter === 'PENDING') {
-        matchStatus = ['SENT_TO_PRINT_SERVICE', 'PRINTING', 'SUBMITTED', 'QUEUED', 'DRAFT'].includes(job.status);
+        matchStatus = isJobPending(job);
       } else {
         matchStatus = job.status === statusFilter;
       }
@@ -1139,6 +1171,64 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            {/* Status View Filtering Dropdown in Header */}
+            <div
+              className={`flex items-center space-x-1.5 bg-[#14161f] border rounded-lg px-2.5 py-1 text-xs transition-colors shadow-sm ${
+                statusFilter !== 'ALL'
+                  ? statusFilter === 'COMPLETED' || statusFilter === 'SUCCESS'
+                    ? 'border-emerald-600/70 bg-emerald-950/20'
+                    : statusFilter === 'FAILED'
+                    ? 'border-rose-600/70 bg-rose-950/20'
+                    : statusFilter === 'PENDING'
+                    ? 'border-amber-600/70 bg-amber-950/20'
+                    : 'border-blue-500/70'
+                  : 'border-[#303546] hover:border-blue-500/50'
+              }`}
+            >
+              {statusFilter === 'COMPLETED' || statusFilter === 'SUCCESS' ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              ) : statusFilter === 'FAILED' ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              ) : statusFilter === 'PENDING' ? (
+                <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-pulse" />
+              ) : (
+                <Filter className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              )}
+              <label
+                htmlFor="batch-history-header-status-filter"
+                className="text-gray-400 text-[11px] font-medium shrink-0 cursor-pointer"
+              >
+                Status:
+              </label>
+              <select
+                id="batch-history-header-status-filter"
+                aria-label="Filter print jobs by status: Success, Failed, or Pending"
+                value={statusFilter === 'COMPLETED' ? 'SUCCESS' : statusFilter}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const normalizedVal = val === 'SUCCESS' ? 'COMPLETED' : val;
+                  setStatusFilter(normalizedVal);
+                  if (activeTab === 'PENDING_QUEUE' && normalizedVal !== 'PENDING' && normalizedVal !== 'ALL') {
+                    setActiveTab('QUEUE');
+                  }
+                }}
+                className="bg-transparent text-gray-100 font-semibold text-xs focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="ALL" className="bg-[#181a20] text-gray-200">
+                  All Jobs ({totalJobsCount})
+                </option>
+                <option value="SUCCESS" className="bg-[#181a20] text-emerald-400 font-medium">
+                  Success ({successJobsCount})
+                </option>
+                <option value="FAILED" className="bg-[#181a20] text-rose-400 font-medium">
+                  Failed ({failedJobsCount})
+                </option>
+                <option value="PENDING" className="bg-[#181a20] text-amber-400 font-medium">
+                  Pending ({pendingJobsCount})
+                </option>
+              </select>
+            </div>
+
             {/* Re-Print Job Action Button */}
             <button
               id="batch-reprint-job-header-btn"
@@ -1284,14 +1374,19 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
             <div className="flex items-center space-x-1 bg-[#13151b] border border-[#2e3342] rounded-md px-2 py-1">
               <span className="text-gray-500 text-[11px]">Status:</span>
               <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                id="batch-print-history-status-select"
+                aria-label="Filter print jobs by status"
+                value={statusFilter === 'COMPLETED' ? 'SUCCESS' : statusFilter}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setStatusFilter(val === 'SUCCESS' ? 'COMPLETED' : val);
+                }}
                 className="bg-transparent text-gray-300 font-medium text-[11px] focus:outline-none cursor-pointer"
               >
-                <option value="ALL">All Statuses</option>
-                <option value="COMPLETED">Completed</option>
-                <option value="PENDING">Pending / In Spooler</option>
-                <option value="FAILED">Failed</option>
+                <option value="ALL">All Statuses ({totalJobsCount})</option>
+                <option value="SUCCESS">Success ({successJobsCount})</option>
+                <option value="FAILED">Failed ({failedJobsCount})</option>
+                <option value="PENDING">Pending / In Spooler ({pendingJobsCount})</option>
                 <option value="CANCELLED">Cancelled</option>
               </select>
             </div>

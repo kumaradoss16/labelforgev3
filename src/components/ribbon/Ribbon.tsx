@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, LabelDocument } from '../../types/label';
 import { FONT_GROUPS } from '../../services/fontFamilies';
+import { LabelForgeLogo } from '../common/LabelForgeLogo';
 
 export type RibbonTab = 'home' | 'insert' | 'modify' | 'view' | 'data' | 'automation' | 'admin' | 'help';
 
@@ -66,6 +67,7 @@ interface RibbonProps {
   onOpenFontManager?: () => void;
   onOpenWorkflowDesigner?: () => void;
   onOpenShortcuts?: () => void;
+  onOpenAbout?: () => void;
   showRulers?: boolean;
   setShowRulers?: (val: boolean) => void;
   showGrid?: boolean;
@@ -139,6 +141,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
   const onOpenFontManager = props.onOpenFontManager ?? (() => {});
   const onOpenWorkflowDesigner = props.onOpenWorkflowDesigner ?? props.onOpenWorkflowManager ?? (() => {});
   const onOpenShortcuts = props.onOpenShortcuts ?? (() => {});
+  const onOpenAbout = props.onOpenAbout ?? (() => {});
   const showRulers = props.showRulers ?? true;
   const setShowRulers = props.setShowRulers ?? (() => {});
   const showGrid = props.showGrid ?? true;
@@ -958,6 +961,14 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
         {activeTab === 'help' && (
           <div className="flex items-center space-x-3">
             <button
+              onClick={onOpenAbout}
+              className="flex items-center space-x-2 px-3 py-1.5 rounded bg-[#252a38] hover:bg-[#303648] text-white text-xs font-medium border border-blue-500/30 transition-all shadow-sm"
+              title="About LabelForge Studio, Brand Identity & System Diagnostics"
+            >
+              <LabelForgeLogo size={18} variant="full" className="rounded" />
+              <span>About LabelForge Studio</span>
+            </button>
+            <button
               onClick={onOpenShortcuts}
               className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-[#2b2f3a] hover:bg-[#373c49] text-gray-200 text-xs"
             >
@@ -971,8 +982,9 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
               <Sparkles className="w-4 h-4 text-amber-400" />
               <span>Barcode Symbology Standards Reference</span>
             </button>
-            <div className="text-[11px] text-gray-400">
-              LabelForge Studio 2026 Enterprise Edition v3.4.0-PROD
+            <div className="flex items-center space-x-2 px-2.5 py-1 rounded-full bg-[#1b1e26] border border-[#2d323e] text-[11px] text-gray-400">
+              <LabelForgeLogo size={14} variant="full" />
+              <span>LabelForge Studio 2026 Enterprise v3.4.0-PROD</span>
             </div>
           </div>
         )}

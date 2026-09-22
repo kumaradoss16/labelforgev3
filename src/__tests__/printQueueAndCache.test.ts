@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { barcodeCache } from '../services/barcodeCache';
 import { compactPrintJobs, retryFailedPrintJobs } from '../services/printQueueManager';
 import { generatePrinterCode } from '../services/printerCodeGenerator';
+import { filterPrintJobsByStatus } from '../components/modals/BatchPrintHistoryModal';
 import { PrintJob, PrinterProfile } from '../types/printer';
 
 describe('BarcodeCache', () => {
@@ -165,3 +166,103 @@ describe('PrinterCodeGenerator', () => {
     expect(dpl).toContain('E');
   });
 });
+
+describe('BatchPrintHistoryModal - filterPrintJobsByStatus', () => {
+  const testJobs: PrintJob[] = [
+    {
+      id: 'job-succ-1',
+      jobName: 'Label Completed 1',
+      templateName: 'Shipping',
+      templateVersion: 1,
+      printerId: 'pr-1',
+      printerName: 'Zebra ZT410',
+      copies: 1,
+      recordCount: 1,
+      status: 'COMPLETED',
+      createdAt: '10:00:00',
+      outputLanguage: 'ZPL'
+    },
+    {
+      id: 'job-fail-1',
+      jobName: 'Label Failed 1',
+      templateName: 'Shipping',
+      templateVersion: 1,
+      printerId: 'pr-1',
+      printerName: 'Zebra ZT410',
+      copies: 1,
+      recordCount: 1,
+      status: 'FAILED',
+      createdAt: '10:05:00',
+      outputLanguage: 'ZPL'
+    },
+    {
+      id: 'job-pend-1',
+      jobName: 'Label Queued 1',
+      templateName: 'Shipping',
+      templateVersion: 1,
+      printerId: 'pr-1',
+      printerName: 'Zebra ZT410',
+      copies: 1,
+      recordCount: 1,
+      status: 'QUEUED',
+      createdAt: '10:10:00',
+      outputLanguage: 'ZPL'
+    },
+    {
+      id: 'job-pend-2',
+      jobName: 'Label Printing 2',
+      templateName: 'Shipping',
+      templateVersion: 1,
+      printerId: 'pr-1',
+      printerName: 'Zebra ZT410',
+      copies: 1,
+      recordCount: 1,
+      status: 'PRINTING',
+      createdAt: '10:12:00',
+      outputLanguage: 'ZPL'
+    },
+    {
+      id: 'job-canc-1',
+      jobName: 'Label Cancelled 1',
+      templateName: 'Shipping',
+      templateVersion: 1,
+      printerId: 'pr-1',
+      printerName: 'Zebra ZT410',
+      copies: 1,
+      recordCount: 1,
+      status: 'CANCELLED',
+      createdAt: '10:15:00',
+      outputLanguage: 'ZPL'
+    }
+  ];
+
+  it('filters all print jobs when ALL is selected', () => {
+    const res = filterPrintJobsByStatus(testJobs, 'ALL');
+    expect(res.length).toBe(5);
+  });
+
+  it('filters for SUCCESS print jobs', () => {
+    const res = filterPrintJobsByStatus(testJobs, 'SUCCESS');
+    expect(res.length).toBe(1);
+    expect(res[0].id).toBe('job-succ-1');
+  });
+
+  it('filters for COMPLETED print jobs interchangeably with SUCCESS', () => {
+    const res = filterPrintJobsByStatus(testJobs, 'COMPLETED');
+    expect(res.length).toBe(1);
+    expect(res[0].id).toBe('job-succ-1');
+  });
+
+  it('filters for FAILED print jobs', () => {
+    const res = filterPrintJobsByStatus(testJobs, 'FAILED');
+    expect(res.length).toBe(1);
+    expect(res[0].id).toBe('job-fail-1');
+  });
+
+  it('filters for PENDING print jobs across spooler states', () => {
+    const res = filterPrintJobsByStatus(testJobs, 'PENDING');
+    expect(res.length).toBe(2);
+    expect(res.map(j => j.id)).toEqual(['job-pend-1', 'job-pend-2']);
+  });
+});
+

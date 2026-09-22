@@ -101,69 +101,191 @@ function createIcoFromPng(pngBuffer: Buffer, width: number, height: number): Buf
 // Generate LabelForge Brand Icon: Deep Slate Dark Navy background with Cobalt Blue and Cyan Label/Barcode Motif
 function generateIcons() {
   const iconDir = path.resolve(process.cwd(), 'assets/icons');
+  const publicDir = path.resolve(process.cwd(), 'public');
   if (!fs.existsSync(iconDir)) {
     fs.mkdirSync(iconDir, { recursive: true });
   }
+  if (!fs.existsSync(publicDir)) {
+    fs.mkdirSync(publicDir, { recursive: true });
+  }
 
-  const sizes = [16, 32, 128, 256];
+  const sizes = [16, 32, 128, 192, 256, 512];
   let png256: Buffer | null = null;
+  let png32: Buffer | null = null;
 
   for (const size of sizes) {
     const pngBuf = createPng(size, size, (x, y) => {
-      const u = x / size;
-      const v = y / size;
+      // Coordinate space normalized to [0, 100]
+      const px = (x / size) * 100;
+      const py = (y / size) * 100;
 
-      // Rounded rect border radius
-      const r = 0.18;
-      const dx = Math.max(0, Math.abs(u - 0.5) - (0.5 - r));
-      const dy = Math.max(0, Math.abs(v - 0.5) - (0.5 - r));
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist > r) {
-        return [0, 0, 0, 0]; // Transparent outside rounded corner
+      // 1. Outer Squircle mask (radius ~ 23 on 100 scale)
+      const r = 23;
+      const qx = Math.max(0, Math.abs(px - 50) - (50 - r));
+      const qy = Math.max(0, Math.abs(py - 50) - (50 - r));
+      const distSquircle = Math.sqrt(qx * qx + qy * qy);
+      if (distSquircle > r) {
+        return [0, 0, 0, 0]; // Transparent outside squircle
       }
 
-      // Border glow
-      if (dist > r - 0.03 || u < 0.04 || u > 0.96 || v < 0.04 || v > 0.96) {
-        return [59, 130, 246, 255]; // Bright Electric Blue
+      // 2. Cyan Targeting Bracket at Top-Right
+      // Horizontal arm: px in [61, 71.5], py in [15.5, 19.5]
+      // Vertical arm: px in [68, 72], py in [17, 28]
+      const inHorizArm = px >= 61 && px <= 71.5 && Math.abs(py - 17.5) <= 1.8;
+      const inVertArm = py >= 17.5 && py <= 28 && Math.abs(px - 71.5) <= 1.8;
+      if (inHorizArm || inVertArm) {
+        return [0, 229, 255, 255]; // Electric Cyan #00e5ff
       }
 
-      // Inner tag area: Dark technical slate
-      const isTagHeader = v < 0.32;
-      if (isTagHeader) {
-        return [30, 41, 59, 255]; // Slate Header
-      }
-
-      // Barcode lines in center area
-      if (v > 0.42 && v < 0.78 && u > 0.18 && u < 0.82) {
-        // Vertical barcode bars pattern
-        const barPos = Math.floor((u - 0.18) * 40);
-        const isBar = (barPos % 3 === 0) || (barPos % 7 === 1) || (barPos % 5 === 2);
-        if (isBar) {
-          return [56, 189, 248, 255]; // Cyan Bar
+      // 3. Main White Tag Boundary Detection
+      // Top: y ~ 16.5, Bottom: y ~ 55, Left: x ~ 36.5, Right: x ~ 69.5
+      // Left edge: x = 36.5 (y between 23 and 45)
+      // Top-left shoulder: (px - 43)^2 + (py - 23)^2 <= 6.5^2
+      // Top edge: py in [16.5, 22], px between 43 and 52
+      // Fold top-right: px in [52, 61], py in [16.5, 26]
+      // Right edge: angled from (69.5, 34) down to (69.5, 43), then rounding
+      const isInsideWhiteTag = (() => {
+        if (px < 36.5 || px > 69.5 || py < 16.5 || py > 55.5) return false;
+        // Top-left round corner cut
+        if (px < 43 && py < 23) {
+          const d = Math.hypot(px - 43, py - 23);
+          if (d > 6.5) return false;
         }
+        // Top-right dog ear angle (x from 52 to 69.5)
+        if (py < 22 && px > 52 + (py - 16.5) * 1.5) {
+          // outside tag top-right corner
+          return false;
+        }
+        // Bottom-left rounded corner
+        if (px < 42 && py > 47) {
+          const d = Math.hypot(px - 42, py - 47);
+          if (d > 6) return false;
+        }
+        // Bottom-right rounded angle
+        if (px > 61 && py > 46) {
+          if (px > 60 + (55.5 - py) * 1.2) return false;
+        }
+        return true;
+      })();
+
+      // 4. White Tag Interior Features
+      if (isInsideWhiteTag) {
+        // 4a. Eyelet Cutout Hole at (43, 23.5) with radius 4.2
+        const eyeletDist = Math.hypot(px - 43, py - 23.5);
+        if (eyeletDist <= 4.2) {
+          // Inside eyelet: reveal deep navy background
+          return [12, 26, 62, 255]; // Deep navy canvas
+        }
+        if (eyeletDist <= 4.8) {
+          // Eyelet soft inner border
+          return [210, 225, 245, 255];
+        }
+
+        // 4b. Dog-Ear Folded Triangle at Top Right (x in [52, 61], y in [16.5, 26])
+        if (px >= 52 && py <= 26 && (px - 52) <= (py - 16.5) * 1.05 + 0.5) {
+          // Crease line
+          if (Math.abs((px - 52) - (py - 16.5)) < 0.8) {
+            return [2, 132, 199, 255]; // Fold shadow crease
+          }
+          // Cyan folded flap with top highlight
+          if (py <= 19) {
+            return [56, 189, 248, 255]; // Cyan highlight
+          }
+          return [0, 196, 255, 255]; // Bright Cyan #00c4ff
+        }
+
+        // 4c. Precision Barcode Stripes (Inside White Tag)
+        // Center barcode vertical range: py between 30 and 45
+        if (py >= 30 && py <= 45) {
+          const inBar1 = px >= 41.5 && px <= 44.3; // Wide bar
+          const inBar2 = px >= 45.5 && px <= 47.5; // Med bar
+          const inBar3 = px >= 48.7 && px <= 50.1; // Thin bar
+          const inBar4 = px >= 51.3 && px <= 53.3; // Med bar
+          const inBar5 = px >= 54.5 && px <= 57.3; // Wide bar
+          const inBar6 = px >= 58.5 && px <= 59.9; // Thin bar
+
+          if (inBar1 || inBar2 || inBar3 || inBar4 || inBar5 || inBar6) {
+            return [9, 20, 48, 255]; // Dark Navy Barcode #091430
+          }
+        }
+
+        // Crisp White Tag body with subtle vertical gradient
+        const tagWhite = Math.round(255 - (py - 16.5) * 0.3);
+        return [tagWhite, Math.min(255, tagWhite + 2), 255, 255];
       }
 
-      // Bottom Status Pill
-      if (v > 0.84 && v < 0.92 && u > 0.28 && u < 0.72) {
-        return [16, 185, 129, 255]; // Emerald Ready
+      // 5. Orange Accent Wedge at Lower Right
+      // Polygon around x in [60.5, 71], y in [38, 51]
+      const inOrangeWedge = (() => {
+        if (px >= 60 && px <= 71.5 && py >= 37 && py <= 51) {
+          if (px + py >= 100 && px - py <= 28) return true;
+        }
+        return false;
+      })();
+      if (inOrangeWedge) {
+        if (py <= 42) {
+          return [255, 150, 20, 255]; // Orange highlight
+        }
+        return [255, 122, 0, 255]; // Warm Orange #ff7a00
       }
 
-      return [15, 23, 42, 255]; // Dark Navy Canvas #0f172a
+      // 6. Layered 3D Electric Blue Offset Base Plate
+      // Protruding to the left and bottom behind white tag
+      const inBluePlate = (() => {
+        // Base plate bounds: px in [29, 67], py in [28, 70]
+        if (px >= 29 && px <= 67 && py >= 28 && py <= 70) {
+          // Bottom curve
+          if (py > 60 && (px < 33 || px > 63)) return false;
+          // Left stepping
+          if (px < 36.5 && py >= 32 && py <= 56) return true;
+          // Bottom stepping
+          if (py >= 53 && py <= 69 && px >= 33 && px <= 64) return true;
+        }
+        return false;
+      })();
+
+      if (inBluePlate) {
+        // Underneath shadow vs top facet highlight
+        if (py >= 65 || px <= 31) {
+          return [0, 59, 135, 255]; // Deep shadow blue
+        }
+        if (px <= 34 || py <= 35) {
+          return [56, 189, 248, 255]; // Cyan-blue edge shine
+        }
+        return [0, 112, 243, 255]; // Electric Azure Blue #0070f3
+      }
+
+      // 7. Background Canvas Gradient (Deep Rich Navy)
+      // Subtle gradient from #0c1a3e at top to #071026 at bottom
+      const t = py / 100;
+      const rBg = Math.round(12 * (1 - t) + 7 * t);
+      const gBg = Math.round(26 * (1 - t) + 16 * t);
+      const bBg = Math.round(62 * (1 - t) + 38 * t);
+
+      return [rBg, gBg, bBg, 255];
     });
 
     fs.writeFileSync(path.join(iconDir, `icon-${size}.png`), pngBuf);
+    fs.writeFileSync(path.join(publicDir, `icon-${size}.png`), pngBuf);
+
     if (size === 256) {
       png256 = pngBuf;
       fs.writeFileSync(path.join(iconDir, 'icon.png'), pngBuf);
+      fs.writeFileSync(path.join(publicDir, 'icon.png'), pngBuf);
+      fs.writeFileSync(path.join(publicDir, 'apple-touch-icon.png'), pngBuf);
+    }
+    if (size === 32) {
+      png32 = pngBuf;
     }
   }
 
   if (png256) {
     const icoBuf = createIcoFromPng(png256, 256, 256);
     fs.writeFileSync(path.join(iconDir, 'icon.ico'), icoBuf);
+    fs.writeFileSync(path.join(publicDir, 'favicon.ico'), icoBuf);
   }
 
-  console.log('✅ Generated assets/icons/icon.ico and multi-resolution PNGs');
+  console.log('✅ Generated assets/icons and public/ icon assets successfully matching reference!');
 }
 
 generateIcons();

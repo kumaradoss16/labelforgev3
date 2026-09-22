@@ -18,6 +18,7 @@ import {
   History
 } from 'lucide-react';
 import { isDesktopApp } from '../../services/desktopBridge';
+import { LabelForgeLogo } from '../common/LabelForgeLogo';
 
 interface TitleBarProps {
   documentName: string;
@@ -36,6 +37,7 @@ interface TitleBarProps {
   onOpenPrintHistory?: () => void;
   onOpen?: () => void;
   onPrint?: () => void;
+  onOpenAbout?: () => void;
   currentUserRole?: string;
 }
 
@@ -56,6 +58,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   onOpenPrintHistory,
   onOpen,
   onPrint,
+  onOpenAbout,
   currentUserRole = 'PRINT_MANAGER',
 }) => {
   const handlePrint = onOpenPrint || onPrint || (() => {});
@@ -64,14 +67,16 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       {/* Left: Brand + Quick Access Toolbar */}
       <div className="flex items-center space-x-1.5">
         {/* LabelForge Logo */}
-        <div className="flex items-center space-x-1.5 pr-2 border-r border-[#323640]">
-          <div className="w-5 h-5 rounded bg-gradient-to-br from-[#2563eb] to-[#1d4ed8] flex items-center justify-center font-black text-white text-[11px] tracking-tighter shadow-sm">
-            LF
-          </div>
+        <button
+          onClick={onOpenAbout}
+          title="About LabelForge Studio (Brand Identity & System Info)"
+          className="flex items-center space-x-1.5 pr-2 border-r border-[#323640] hover:opacity-90 transition-opacity cursor-pointer group"
+        >
+          <LabelForgeLogo size={22} variant="full" className="rounded shadow-sm group-hover:scale-105 transition-transform" />
           <span className="font-semibold text-white tracking-wide text-[12px]">
             LabelForge<span className="text-[#60a5fa] font-normal text-[11px] ml-1">Studio</span>
           </span>
-        </div>
+        </button>
 
         {/* Quick Access Toolbar Icons */}
         <div className="flex items-center space-x-0.5 pl-1">
