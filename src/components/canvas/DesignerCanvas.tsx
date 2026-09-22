@@ -42,6 +42,7 @@ import { barcodeCache } from '../../services/barcodeCache';
 import { getFontCssStack } from '../../services/fontFamilies';
 import { SAMPLE_TEMPLATES } from '../../services/sampleData';
 import { Rulers } from './Rulers';
+import { computeIntelligentSnap, ActiveSnapGuide } from '../../services/intelligentSnapEngine';
 
 interface DesignerCanvasProps {
   document: LabelDocument;
@@ -59,6 +60,8 @@ interface DesignerCanvasProps {
   setShowGrid?: (v: boolean) => void;
   snapToGrid: boolean;
   setSnapToGrid?: (v: boolean) => void;
+  smartSnapping?: boolean;
+  setSmartSnapping?: (v: boolean) => void;
   zoom: number;
   setZoom: (val: number | ((prev: number) => number)) => void;
   showRulers: boolean;
@@ -107,6 +110,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   setShowGrid,
   snapToGrid,
   setSnapToGrid,
+  smartSnapping,
+  setSmartSnapping,
   zoom,
   setZoom,
   showRulers,
@@ -187,6 +192,18 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   const [groupDragStarts, setGroupDragStarts] = useState<Record<string, { x: number; y: number }> | null>(null);
   const [primaryDragId, setPrimaryDragId] = useState<string | null>(null);
   const [liveDragDelta, setLiveDragDelta] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
+  // Intelligent Object Snapping State (Aligns to center lines of adjacent elements)
+  const [localSmartSnapping, setLocalSmartSnapping] = useState<boolean>(true);
+  const isSmartSnappingActive = smartSnapping !== undefined ? smartSnapping : localSmartSnapping;
+  const toggleSmartSnapping = () => {
+    if (setSmartSnapping) {
+      setSmartSnapping(!isSmartSnappingActive);
+    } else {
+      setLocalSmartSnapping(prev => !prev);
+    }
+  };
+  const [activeSnapGuides, setActiveSnapGuides] = useState<ActiveSnapGuide[]>([]);
 
   // Hand Tool Panning State (Middle-click drag, Spacebar drag, or Pan Tool)
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -532,17 +549,77 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
       if (dragHandle === 'move') {
         if (groupDragStarts && primaryDragId) {
           const pInit = groupDragStarts[primaryDragId] || { x: dragStart.objX, y: dragStart.objY };
-          const snappedX = snap(Math.max(0, pInit.x + deltaMmX), true);
-          const snappedY = snap(Math.max(0, pInit.y + deltaMmY), false);
+          const pObj = doc.objects.find(o => o.id === primaryDragId);
+          const rawX = Math.max(0, pInit.x + deltaMmX);
+          const rawY = Math.max(0, pInit.y + deltaMmY);
+
+          let snappedX = rawX;
+          let snappedY = rawY;
+          let currentGuides: ActiveSnapGuide[] = [];
+
+          if (isSmartSnappingActive && pObj && !e.altKey) {
+            const snapRes = computeIntelligentSnap({
+              draggedObj: {
+                id: primaryDragId,
+                x: rawX,
+                y: rawY,
+                width: pObj.width,
+                height: pObj.height,
+              },
+              otherObjects: doc.objects.filter(o => !effectiveSelectedIds.includes(o.id)),
+              canvasWidthMm: doc.dimensions.width,
+              canvasHeightMm: doc.dimensions.height,
+              thresholdMm: Math.max(1.5, 6 / pxPerMm),
+              enabled: true,
+            });
+            snappedX = snapRes.hasSnappedX ? snapRes.x : snap(rawX, true);
+            snappedY = snapRes.hasSnappedY ? snapRes.y : snap(rawY, false);
+            currentGuides = snapRes.guides;
+          } else {
+            snappedX = snap(rawX, true);
+            snappedY = snap(rawY, false);
+          }
+
+          setActiveSnapGuides(currentGuides);
           const effDx = snappedX - pInit.x;
           const effDy = snappedY - pInit.y;
           setLiveDragDelta({ dx: effDx, dy: effDy });
         } else if (selectedObj && !selectedObj.locked) {
-          const newX = snap(Math.max(0, dragStart.objX + deltaMmX), true);
-          const newY = snap(Math.max(0, dragStart.objY + deltaMmY), false);
+          const rawX = Math.max(0, dragStart.objX + deltaMmX);
+          const rawY = Math.max(0, dragStart.objY + deltaMmY);
+
+          let newX = rawX;
+          let newY = rawY;
+          let currentGuides: ActiveSnapGuide[] = [];
+
+          if (isSmartSnappingActive && !e.altKey) {
+            const snapRes = computeIntelligentSnap({
+              draggedObj: {
+                id: selectedObj.id,
+                x: rawX,
+                y: rawY,
+                width: selectedObj.width,
+                height: selectedObj.height,
+              },
+              otherObjects: doc.objects.filter(o => o.id !== selectedObj.id),
+              canvasWidthMm: doc.dimensions.width,
+              canvasHeightMm: doc.dimensions.height,
+              thresholdMm: Math.max(1.5, 6 / pxPerMm),
+              enabled: true,
+            });
+            newX = snapRes.hasSnappedX ? snapRes.x : snap(rawX, true);
+            newY = snapRes.hasSnappedY ? snapRes.y : snap(rawY, false);
+            currentGuides = snapRes.guides;
+          } else {
+            newX = snap(rawX, true);
+            newY = snap(rawY, false);
+          }
+
+          setActiveSnapGuides(currentGuides);
           onUpdateObject({ x: newX, y: newY });
         }
       } else if (selectedObj && !selectedObj.locked) {
+        setActiveSnapGuides([]);
         if (dragHandle === 'se') {
           const newW = snap(Math.max(5, dragStart.objW + deltaMmX), true);
           const newH = snap(Math.max(5, dragStart.objH + deltaMmY), false);
@@ -614,6 +691,7 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
     setGroupDragStarts(null);
     setPrimaryDragId(null);
     setLiveDragDelta({ dx: 0, dy: 0 });
+    setActiveSnapGuides([]);
     setIsMarquee(false);
     setMarqueeBox(null);
     marqueeOriginRef.current = null;
@@ -1010,6 +1088,25 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
             >
               <Magnet className="w-3 h-3 text-amber-400" />
               <span>Snap</span>
+            </button>
+
+            {/* Intelligent Object Snapping */}
+            <button
+              id="designer-canvas-smart-snap-btn"
+              onClick={toggleSmartSnapping}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
+                isSmartSnappingActive
+                  ? 'bg-fuchsia-600/20 border-fuchsia-500/50 text-fuchsia-300'
+                  : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
+              }`}
+              title={
+                isSmartSnappingActive
+                  ? 'Intelligent Object Snapping Active (Aligns to center lines of adjacent elements). Hold Alt to temporarily suspend.'
+                  : 'Enable Intelligent Object Snapping'
+              }
+            >
+              <AlignCenter className="w-3 h-3 text-fuchsia-400" />
+              <span>Smart Snap</span>
             </button>
 
             {/* Grid Toggle */}
@@ -1510,6 +1607,111 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                   </>
                 );
               })()}
+
+              {/* Dynamic Intelligent Object Center Snapping Guide Lines & Badges */}
+              {isDragging && activeSnapGuides.map((guide) => {
+                const isVertical = guide.axis === 'x'; // constant x, vertical line
+                if (isVertical) {
+                  const lineXPx = guide.positionMm * pxPerMm;
+                  const topPx = Math.max(0, guide.startMm * pxPerMm);
+                  const bottomPx = Math.min(labelHeightPx, guide.endMm * pxPerMm);
+                  const heightPx = Math.max(12, bottomPx - topPx);
+
+                  return (
+                    <div
+                      key={guide.id}
+                      className="absolute pointer-events-none z-45"
+                      style={{
+                        left: `${lineXPx}px`,
+                        top: `${topPx}px`,
+                        width: '0px',
+                        height: `${heightPx}px`,
+                      }}
+                    >
+                      {/* Vertical Center Guideline */}
+                      <div className="absolute inset-y-0 -left-[1px] w-[2px] bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.9)]" />
+
+                      {/* Source Center Dot */}
+                      <div
+                        className="absolute -left-[5px] -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
+                        style={{ top: `${(guide.sourceCenter.y - guide.startMm) * pxPerMm}px` }}
+                      >
+                        <div className="w-1 h-1 bg-white rounded-full" />
+                      </div>
+
+                      {/* Target Center Dot */}
+                      <div
+                        className="absolute -left-[5px] -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
+                        style={{ top: `${(guide.targetCenter.y - guide.startMm) * pxPerMm}px` }}
+                      >
+                        <div className="w-1 h-1 bg-white rounded-full" />
+                      </div>
+
+                      {/* Center Alignment Floating Tag */}
+                      <div
+                        className="absolute left-2.5 -translate-y-1/2 bg-fuchsia-950/95 text-fuchsia-200 border border-fuchsia-400/80 px-2 py-0.5 rounded-md text-[10px] font-mono shadow-xl flex items-center space-x-1.5 whitespace-nowrap z-20 pointer-events-none"
+                        style={{ top: `${((guide.sourceCenter.y + guide.targetCenter.y) / 2 - guide.startMm) * pxPerMm}px` }}
+                      >
+                        <AlignCenter className="w-3 h-3 text-fuchsia-400 shrink-0" />
+                        <span className="font-semibold">Center X: {guide.positionMm.toFixed(1)}mm</span>
+                        {guide.targetName && (
+                          <span className="text-fuchsia-300/80 font-normal">({guide.targetName})</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                } else {
+                  // Horizontal Center Guideline (constant y)
+                  const lineYPx = guide.positionMm * pxPerMm;
+                  const leftPx = Math.max(0, guide.startMm * pxPerMm);
+                  const rightPx = Math.min(labelWidthPx, guide.endMm * pxPerMm);
+                  const widthPx = Math.max(12, rightPx - leftPx);
+
+                  return (
+                    <div
+                      key={guide.id}
+                      className="absolute pointer-events-none z-45"
+                      style={{
+                        left: `${leftPx}px`,
+                        top: `${lineYPx}px`,
+                        width: `${widthPx}px`,
+                        height: '0px',
+                      }}
+                    >
+                      {/* Horizontal Center Guideline */}
+                      <div className="absolute inset-x-0 -top-[1px] h-[2px] bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.9)]" />
+
+                      {/* Source Center Dot */}
+                      <div
+                        className="absolute -top-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
+                        style={{ left: `${(guide.sourceCenter.x - guide.startMm) * pxPerMm}px` }}
+                      >
+                        <div className="w-1 h-1 bg-white rounded-full" />
+                      </div>
+
+                      {/* Target Center Dot */}
+                      <div
+                        className="absolute -top-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
+                        style={{ left: `${(guide.targetCenter.x - guide.startMm) * pxPerMm}px` }}
+                      >
+                        <div className="w-1 h-1 bg-white rounded-full" />
+                      </div>
+
+                      {/* Center Alignment Floating Tag */}
+                      <div
+                        className="absolute -top-7 -translate-x-1/2 bg-fuchsia-950/95 text-fuchsia-200 border border-fuchsia-400/80 px-2 py-0.5 rounded-md text-[10px] font-mono shadow-xl flex items-center space-x-1.5 whitespace-nowrap z-20 pointer-events-none"
+                        style={{ left: `${((guide.sourceCenter.x + guide.targetCenter.x) / 2 - guide.startMm) * pxPerMm}px` }}
+                      >
+                        <AlignCenterVertical className="w-3 h-3 text-fuchsia-400 shrink-0" />
+                        <span className="font-semibold">Center Y: {guide.positionMm.toFixed(1)}mm</span>
+                        {guide.targetName && (
+                          <span className="text-fuchsia-300/80 font-normal">({guide.targetName})</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+              })}
             </div>
           </div>
         </div>

@@ -8,7 +8,8 @@ import {
   Wifi,
   ZoomIn,
   ZoomOut,
-  History
+  History,
+  AlignCenter
 } from 'lucide-react';
 import { LabelDimensions } from '../../types/label';
 import { PrinterProfile } from '../../types/printer';
@@ -22,6 +23,8 @@ interface StatusBarProps {
   activePrinter: PrinterProfile;
   snapToGrid: boolean;
   setSnapToGrid: (v: boolean) => void;
+  smartSnapping?: boolean;
+  setSmartSnapping?: (v: boolean) => void;
   showGrid: boolean;
   setShowGrid: (v: boolean) => void;
   selectedObjectName?: string;
@@ -38,6 +41,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   activePrinter,
   snapToGrid,
   setSnapToGrid,
+  smartSnapping = true,
+  setSmartSnapping,
   showGrid,
   setShowGrid,
   selectedObjectName,
@@ -116,6 +121,18 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           <Magnet className="w-3 h-3" />
           <span>Snap</span>
         </button>
+
+        {setSmartSnapping && (
+          <button
+            id="status-bar-smart-snap-btn"
+            onClick={() => setSmartSnapping(!smartSnapping)}
+            className={`flex items-center space-x-1 hover:text-white ${smartSnapping ? 'text-fuchsia-400' : 'text-gray-500'}`}
+            title="Toggle Intelligent Object Center Snapping (Smart Snap)"
+          >
+            <AlignCenter className="w-3 h-3" />
+            <span>Smart Snap</span>
+          </button>
+        )}
 
         <span className="text-gray-600">|</span>
 

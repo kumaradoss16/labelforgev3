@@ -42,7 +42,10 @@ import {
   AlignEndVertical,
   AlignHorizontalDistributeCenter,
   AlignVerticalDistributeCenter,
-  History
+  History,
+  FileBox,
+  FolderPlus,
+  Bookmark
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, LabelDocument } from '../../types/label';
 import { FONT_GROUPS } from '../../services/fontFamilies';
@@ -82,6 +85,8 @@ interface RibbonProps {
   setShowGuides?: (val: boolean) => void;
   snapToGuides?: boolean;
   setSnapToGuides?: (val: boolean) => void;
+  smartSnapping?: boolean;
+  setSmartSnapping?: (val: boolean) => void;
   // Database record stepping
   recordIndex?: number;
   totalRecords?: number;
@@ -106,6 +111,8 @@ interface RibbonProps {
   onSelectTemplate?: (template: any) => void;
   onOpenBarTenderManager?: () => void;
   onOpenPrintHistory?: () => void;
+  onOpenTemplateCenter?: () => void;
+  onSaveAsTemplate?: () => void;
 }
 
 export const Ribbon: React.FC<RibbonProps> = (props) => {
@@ -152,6 +159,8 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
   const setShowGuides = props.setShowGuides ?? (() => {});
   const snapToGuides = props.snapToGuides ?? true;
   const setSnapToGuides = props.setSnapToGuides ?? (() => {});
+  const smartSnapping = props.smartSnapping ?? true;
+  const setSmartSnapping = props.setSmartSnapping ?? (() => {});
   const zoom = props.zoom ?? 1.25;
   const setZoom = props.setZoom ?? (() => {});
   const unit = props.unit ?? 'mm';
@@ -209,6 +218,33 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
         {/* ======================= HOME TAB ======================= */}
         {activeTab === 'home' && (
           <>
+            {/* Template & Project Group */}
+            <div className="flex flex-col justify-between border-r border-[#353945] pr-3">
+              <div className="flex items-center space-x-1 flex-1">
+                {props.onOpenTemplateCenter && (
+                  <button
+                    onClick={props.onOpenTemplateCenter}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded bg-blue-950/60 hover:bg-blue-900/80 border border-blue-600/40 text-blue-200"
+                    title="Open Template Center (Browse, search, and manage label templates)"
+                  >
+                    <FileBox className="w-4 h-4 text-blue-400 mb-0.5" />
+                    <span className="text-[10px] font-semibold">Templates</span>
+                  </button>
+                )}
+                {props.onSaveAsTemplate && (
+                  <button
+                    onClick={props.onSaveAsTemplate}
+                    className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-[#2f3440] text-gray-300 hover:text-white"
+                    title="Save Current Design As Reusable Template (Ctrl+Shift+S)"
+                  >
+                    <FolderPlus className="w-4 h-4 text-emerald-400 mb-0.5" />
+                    <span className="text-[10px]">Save As Tpl</span>
+                  </button>
+                )}
+              </div>
+              <span className="text-[9px] uppercase tracking-wider text-gray-500 text-center mt-1">Templates</span>
+            </div>
+
             {/* Clipboard Group */}
             <div className="flex flex-col justify-between border-r border-[#353945] pr-3">
               <div className="flex items-center space-x-1 flex-1">
@@ -817,6 +853,15 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                   className="rounded bg-[#1b1d24] border-gray-600 text-cyan-600"
                 />
                 <span>Snap Guides</span>
+              </label>
+              <label className="flex items-center space-x-1 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={smartSnapping}
+                  onChange={(e) => setSmartSnapping?.(e.target.checked)}
+                  className="rounded bg-[#1b1d24] border-gray-600 text-fuchsia-600"
+                />
+                <span className="text-fuchsia-300">Smart Snap</span>
               </label>
             </div>
 

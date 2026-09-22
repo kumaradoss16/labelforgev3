@@ -19,11 +19,15 @@ import { TemplateManagerModal } from './components/modals/TemplateManagerModal';
 import { BarTenderManagerModal } from './components/modals/BarTenderManagerModal';
 import { BatchPrintHistoryModal } from './components/modals/BatchPrintHistoryModal';
 import { AboutModal } from './components/modals/AboutModal';
+import { TemplateCenter } from './components/templates/TemplateCenter';
+import { SaveAsTemplateModal } from './components/templates/SaveAsTemplateModal';
 
 // Types & Services
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
 import { PrinterProfile, PrintJob, PrintAuditLog, UserRole, BarTenderTemplateMetadata } from './types/printer';
 import { DataSourceDefinition, SerializationCounter } from './types/database';
+import { TemplateRecord } from './types/template';
+import { saveTemplate } from './services/templateStorage';
 import {
   SAMPLE_TEMPLATES,
   SAMPLE_PRINTERS,
@@ -98,6 +102,7 @@ export const App: React.FC = () => {
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [lockGuides, setLockGuides] = useState<boolean>(false);
   const [snapToGuides, setSnapToGuides] = useState<boolean>(true);
+  const [smartSnapping, setSmartSnapping] = useState<boolean>(true);
   const [guides, setGuides] = useState<GuideLine[]>([
     { id: 'g-1', type: 'h', position: 10 },
     { id: 'g-2', type: 'h', position: 35 },
@@ -122,6 +127,11 @@ export const App: React.FC = () => {
   const [auditLogs, setAuditLogs] = useState<PrintAuditLog[]>(SAMPLE_AUDIT_LOGS);
   const [barTenderTemplates, setBarTenderTemplates] = useState<BarTenderTemplateMetadata[]>(SAMPLE_BARTENDER_TEMPLATES);
   const [isBarTenderModalOpen, setIsBarTenderModalOpen] = useState(false);
+
+  // Template Management & Workspace Mode
+  const [appViewMode, setAppViewMode] = useState<'editor' | 'templates'>('editor');
+  const [isSaveAsTemplateModalOpen, setIsSaveAsTemplateModalOpen] = useState(false);
+  const [masterTemplateRecord, setMasterTemplateRecord] = useState<TemplateRecord | null>(null);
 
   // Modals state
   const [isBarcodeWizardOpen, setIsBarcodeWizardOpen] = useState(false);
@@ -655,6 +665,26 @@ export const App: React.FC = () => {
 
   // Document Save / Load (.lforge Package + .btw.json support)
   const handleSaveDocument = async () => {
+    // If user is currently editing a Master Template in storage
+    if (masterTemplateRecord) {
+      const updatedRecord: TemplateRecord = {
+        ...masterTemplateRecord,
+        name: document.name,
+        description: document.description || masterTemplateRecord.description,
+        modified: new Date().toISOString(),
+        version: masterTemplateRecord.version + 1,
+        document: {
+          ...document,
+          modified: new Date().toISOString(),
+        },
+      };
+      saveTemplate(updatedRecord);
+      setMasterTemplateRecord(updatedRecord);
+      setIsModified(false);
+      showToast(`Saved Master Template: "${updatedRecord.name}" (v${updatedRecord.version})`);
+      return;
+    }
+
     if (isDesktopApp()) {
       const res = await desktopSaveProject(document, currentFilePath);
       if (res.success) {
@@ -678,6 +708,40 @@ export const App: React.FC = () => {
     URL.revokeObjectURL(url);
     setIsModified(false);
     showToast(`Template exported to ${document.name.replace(/\s+/g, '_')}.lforge (Checksum: ${pkg.manifest.checksum})`);
+  };
+
+  const handleUseTemplateToDesign = (newDoc: LabelDocument, templateRecord: TemplateRecord) => {
+    setMasterTemplateRecord(null);
+    setAppViewMode('editor');
+    setOpenDocuments(prev => [...prev.filter(Boolean), newDoc]);
+    setDocument(newDoc);
+    pushHistory(newDoc);
+    setSelectedObjectId(null);
+    setSelectedObjectIds([]);
+    setIsModified(false);
+    showToast(`Created new design based on template "${templateRecord.name}"`);
+  };
+
+  const handleEditMasterTemplate = (templateRecord: TemplateRecord) => {
+    setMasterTemplateRecord(templateRecord);
+    setAppViewMode('editor');
+    const masterDoc: LabelDocument = {
+      ...templateRecord.document,
+      id: templateRecord.id,
+      name: templateRecord.name,
+      description: templateRecord.description,
+    };
+    setOpenDocuments(prev => {
+      const exists = prev.some(d => d && d.id === masterDoc.id);
+      if (exists) return prev.map(d => (d && d.id === masterDoc.id ? masterDoc : d)).filter(Boolean);
+      return [...prev.filter(Boolean), masterDoc];
+    });
+    setDocument(masterDoc);
+    pushHistory(masterDoc);
+    setSelectedObjectId(null);
+    setSelectedObjectIds([]);
+    setIsModified(false);
+    showToast(`Editing Master Template: "${templateRecord.name}" (v${templateRecord.version})`);
   };
 
   const handleSaveDocumentAs = async () => {
@@ -894,7 +958,7 @@ export const App: React.FC = () => {
         onOpenPrintPreview={() => setIsPrintModalOpen(true)}
         onOpenDataSources={() => setIsDatabaseModalOpen(true)}
         onOpenFontManager={() => setIsFontModalOpen(true)}
-        onOpenTemplateManager={() => setIsTemplateManagerOpen(true)}
+        onOpenTemplateManager={() => setAppViewMode('templates')}
         onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
         onOpenPrintHistory={() => setIsPrintHistoryModalOpen(true)}
         onOpenAbout={() => setIsAboutModalOpen(true)}
@@ -903,6 +967,11 @@ export const App: React.FC = () => {
         onRedo={handleRedo}
         canUndo={historyPast.length > 0}
         canRedo={historyFuture.length > 0}
+        currentView={appViewMode}
+        onToggleView={(view) => setAppViewMode(view)}
+        onOpenSaveAsTemplate={() => setIsSaveAsTemplateModalOpen(true)}
+        isMasterTemplateMode={Boolean(masterTemplateRecord)}
+        masterTemplateName={masterTemplateRecord?.name}
       />
 
       {/* 2. RIBBON WORKSTATION INTERFACE */}
@@ -930,6 +999,8 @@ export const App: React.FC = () => {
         onOpenPrintModal={() => setIsPrintModalOpen(true)}
         onOpenShortcuts={() => setIsShortcutsModalOpen(true)}
         onOpenAbout={() => setIsAboutModalOpen(true)}
+        onOpenTemplateCenter={() => setAppViewMode('templates')}
+        onSaveAsTemplate={() => setIsSaveAsTemplateModalOpen(true)}
         showRulers={showRulers}
         setShowRulers={setShowRulers}
         showGrid={showGrid}
@@ -940,6 +1011,8 @@ export const App: React.FC = () => {
         setShowGuides={setShowGuides}
         snapToGuides={snapToGuides}
         setSnapToGuides={setSnapToGuides}
+        smartSnapping={smartSnapping}
+        setSmartSnapping={setSmartSnapping}
         zoom={zoom}
         setZoom={setZoom}
         unit={document.dimensions.unit || 'mm'}
@@ -963,126 +1036,139 @@ export const App: React.FC = () => {
         onSelectTemplate={handleSelectTemplate}
       />
 
-      {/* 3. MAIN WORKSPACE (Large Editor Section + Collapsible Panels) */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Toolbox (Collapsible to maximize editor area) */}
-        {isToolboxOpen && (
-          <LeftToolbox
-            activeTool={activeTool}
-            setActiveTool={setActiveTool}
-            currentTool={activeTool}
-            setCurrentTool={setActiveTool}
-            onAddObject={handleAddObject}
-            onAddText={() => handleAddText()}
-            onAddBarcode={(sym, val, style) => handleAddBarcode(sym, val || '1234567890', style)}
-            onAddQRCode={() => handleAddBarcode('qr', 'https://gs1.org/gtin/00614141999996')}
-            onAddDataMatrix={() => handleAddBarcode('datamatrix', '[)>*06*12S00614141*10LOT99*21SN1002')}
-            onAddShape={handleAddShape}
-            onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
-            onOpenFontManager={() => setIsFontModalOpen(true)}
-          />
-        )}
+      {/* VIEW SWITCHER: Template Center or Main Workspace */}
+      {appViewMode === 'templates' ? (
+        <TemplateCenter
+          onUseTemplateToDesign={handleUseTemplateToDesign}
+          onEditMasterTemplate={handleEditMasterTemplate}
+          onClose={() => setAppViewMode('editor')}
+        />
+      ) : (
+        <>
+          {/* 3. MAIN WORKSPACE (Large Editor Section + Collapsible Panels) */}
+          <div className="flex-1 flex overflow-hidden relative">
+            {/* Left Toolbox (Collapsible to maximize editor area) */}
+            {isToolboxOpen && (
+              <LeftToolbox
+                activeTool={activeTool}
+                setActiveTool={setActiveTool}
+                currentTool={activeTool}
+                setCurrentTool={setActiveTool}
+                onAddObject={handleAddObject}
+                onAddText={() => handleAddText()}
+                onAddBarcode={(sym, val, style) => handleAddBarcode(sym, val || '1234567890', style)}
+                onAddQRCode={() => handleAddBarcode('qr', 'https://gs1.org/gtin/00614141999996')}
+                onAddDataMatrix={() => handleAddBarcode('datamatrix', '[)>*06*12S00614141*10LOT99*21SN1002')}
+                onAddShape={handleAddShape}
+                onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
+                onOpenFontManager={() => setIsFontModalOpen(true)}
+              />
+            )}
 
-        {/* Left Toolbox Toggle Tab */}
-        <button
-          onClick={() => setIsToolboxOpen(!isToolboxOpen)}
-          className="absolute top-1/2 -translate-y-1/2 z-40 bg-[#1e222b] hover:bg-blue-600 text-gray-400 hover:text-white border border-[#363b4b] rounded-r px-0.5 py-2 shadow-md transition-colors"
-          style={{ left: isToolboxOpen ? '192px' : '0px' }}
-          title={isToolboxOpen ? 'Collapse Toolbox (Enlarge Editor Section)' : 'Expand Toolbox'}
-        >
-          {isToolboxOpen ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
+            {/* Left Toolbox Toggle Tab */}
+            <button
+              onClick={() => setIsToolboxOpen(!isToolboxOpen)}
+              className="absolute top-1/2 -translate-y-1/2 z-40 bg-[#1e222b] hover:bg-blue-600 text-gray-400 hover:text-white border border-[#363b4b] rounded-r px-0.5 py-2 shadow-md transition-colors"
+              style={{ left: isToolboxOpen ? '192px' : '0px' }}
+              title={isToolboxOpen ? 'Collapse Toolbox (Enlarge Editor Section)' : 'Expand Toolbox'}
+            >
+              {isToolboxOpen ? <ChevronLeft className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </button>
 
-        {/* Central Canvas Viewport: Enlarged Editor with Full Physical Rulers & Controls */}
-        <div className="flex-1 flex flex-col relative overflow-hidden bg-[#111317]">
-          <DesignerCanvas
-            document={document}
+            {/* Central Canvas Viewport: Enlarged Editor with Full Physical Rulers & Controls */}
+            <div className="flex-1 flex flex-col relative overflow-hidden bg-[#111317]">
+              <DesignerCanvas
+                document={document}
+                selectedObjectId={selectedObjectId}
+                selectedObjectIds={selectedObjectIds}
+                onSelectObject={handleSelectObject}
+                onSelectObjects={handleSelectObjects}
+                onUpdateObject={handleUpdateObject}
+                onUpdateMultipleObjects={handleUpdateMultipleObjects}
+                activeTool={activeTool}
+                setActiveTool={setActiveTool}
+                onAlign={handleAlign}
+                onDuplicateSelected={handleDuplicateObject}
+                showGrid={showGrid}
+                setShowGrid={setShowGrid}
+                snapToGrid={snapToGrid}
+                setSnapToGrid={setSnapToGrid}
+                smartSnapping={smartSnapping}
+                setSmartSnapping={setSmartSnapping}
+                zoom={zoom}
+                setZoom={setZoom}
+                showRulers={showRulers}
+                setShowRulers={setShowRulers}
+                unit={document.dimensions.unit || 'mm'}
+                onUnitChange={(u) => {
+                  setDocument(prev => ({ ...prev, dimensions: { ...prev.dimensions, unit: u } }));
+                }}
+                showGuides={showGuides}
+                setShowGuides={setShowGuides}
+                lockGuides={lockGuides}
+                setLockGuides={setLockGuides}
+                snapToGuides={snapToGuides}
+                setSnapToGuides={setSnapToGuides}
+                guides={guides}
+                onAddGuide={handleAddGuide}
+                onRemoveGuide={handleRemoveGuide}
+                onClearGuides={handleClearGuides}
+                activeRecord={activeRecord}
+                counter={counter}
+                onCursorMove={(x, y) => setCursorPos({ x, y })}
+                onDeleteSelected={() => handleDeleteObject()}
+                isMaximized={isFocusMode}
+                onToggleMaximize={handleToggleFocusMode}
+                isModified={isModified}
+                openDocuments={openDocuments}
+                activeDocumentId={document.id}
+                onSelectDocumentTab={handleSelectDocumentTab}
+                onCloseDocumentTab={handleCloseDocumentTab}
+                onNewDocumentTab={handleNewDocumentTab}
+                onSelectTemplate={handleSelectTemplate}
+              />
+            </div>
+
+            {/* Right Properties Panel Toggle Tab */}
+            <button
+              onClick={() => setIsPropertiesOpen(!isPropertiesOpen)}
+              className="absolute top-1/2 -translate-y-1/2 z-40 bg-[#1e222b] hover:bg-blue-600 text-gray-400 hover:text-white border border-[#363b4b] rounded-l px-0.5 py-2 shadow-md transition-colors"
+              style={{ right: isPropertiesOpen ? '288px' : '0px' }}
+              title={isPropertiesOpen ? 'Collapse Properties (Enlarge Editor Section)' : 'Expand Properties'}
+            >
+              {isPropertiesOpen ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            </button>
+
+            {/* Right Properties Panel (Collapsible to maximize editor area) */}
+            {isPropertiesOpen && (
+              <PropertiesPanel
+                selectedObject={selectedObject}
+                onUpdateObject={handleUpdateObject}
+                activeDataSource={activeDataSource}
+                counter={counter}
+                onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
+                onAlign={handleAlign}
+                onZOrder={handleZOrder}
+              />
+            )}
+          </div>
+
+          {/* 4. BOTTOM DOCK (Layers, Preflight Diagnostics, Live Data Table) */}
+          <BottomDock
+            objects={document.objects}
             selectedObjectId={selectedObjectId}
             selectedObjectIds={selectedObjectIds}
             onSelectObject={handleSelectObject}
             onSelectObjects={handleSelectObjects}
-            onUpdateObject={handleUpdateObject}
-            onUpdateMultipleObjects={handleUpdateMultipleObjects}
-            activeTool={activeTool}
-            setActiveTool={setActiveTool}
-            onAlign={handleAlign}
-            onDuplicateSelected={handleDuplicateObject}
-            showGrid={showGrid}
-            setShowGrid={setShowGrid}
-            snapToGrid={snapToGrid}
-            setSnapToGrid={setSnapToGrid}
-            zoom={zoom}
-            setZoom={setZoom}
-            showRulers={showRulers}
-            setShowRulers={setShowRulers}
-            unit={document.dimensions.unit || 'mm'}
-            onUnitChange={(u) => {
-              setDocument(prev => ({ ...prev, dimensions: { ...prev.dimensions, unit: u } }));
-            }}
-            showGuides={showGuides}
-            setShowGuides={setShowGuides}
-            lockGuides={lockGuides}
-            setLockGuides={setLockGuides}
-            snapToGuides={snapToGuides}
-            setSnapToGuides={setSnapToGuides}
-            guides={guides}
-            onAddGuide={handleAddGuide}
-            onRemoveGuide={handleRemoveGuide}
-            onClearGuides={handleClearGuides}
-            activeRecord={activeRecord}
-            counter={counter}
-            onCursorMove={(x, y) => setCursorPos({ x, y })}
-            onDeleteSelected={() => handleDeleteObject()}
-            isMaximized={isFocusMode}
-            onToggleMaximize={handleToggleFocusMode}
-            isModified={isModified}
-            openDocuments={openDocuments}
-            activeDocumentId={document.id}
-            onSelectDocumentTab={handleSelectDocumentTab}
-            onCloseDocumentTab={handleCloseDocumentTab}
-            onNewDocumentTab={handleNewDocumentTab}
-            onSelectTemplate={handleSelectTemplate}
+            onUpdateObject={handleUpdateObjectById}
+            onDeleteObject={handleDeleteObject}
+            diagnostics={diagnostics}
+            dataSource={activeDataSource}
+            activeRecordIndex={activeRecordIndex}
+            onSelectRecordIndex={setActiveRecordIndex}
           />
-        </div>
-
-        {/* Right Properties Panel Toggle Tab */}
-        <button
-          onClick={() => setIsPropertiesOpen(!isPropertiesOpen)}
-          className="absolute top-1/2 -translate-y-1/2 z-40 bg-[#1e222b] hover:bg-blue-600 text-gray-400 hover:text-white border border-[#363b4b] rounded-l px-0.5 py-2 shadow-md transition-colors"
-          style={{ right: isPropertiesOpen ? '288px' : '0px' }}
-          title={isPropertiesOpen ? 'Collapse Properties (Enlarge Editor Section)' : 'Expand Properties'}
-        >
-          {isPropertiesOpen ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-        </button>
-
-        {/* Right Properties Panel (Collapsible to maximize editor area) */}
-        {isPropertiesOpen && (
-          <PropertiesPanel
-            selectedObject={selectedObject}
-            onUpdateObject={handleUpdateObject}
-            activeDataSource={activeDataSource}
-            counter={counter}
-            onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
-            onAlign={handleAlign}
-            onZOrder={handleZOrder}
-          />
-        )}
-      </div>
-
-      {/* 4. BOTTOM DOCK (Layers, Preflight Diagnostics, Live Data Table) */}
-      <BottomDock
-        objects={document.objects}
-        selectedObjectId={selectedObjectId}
-        selectedObjectIds={selectedObjectIds}
-        onSelectObject={handleSelectObject}
-        onSelectObjects={handleSelectObjects}
-        onUpdateObject={handleUpdateObjectById}
-        onDeleteObject={handleDeleteObject}
-        diagnostics={diagnostics}
-        dataSource={activeDataSource}
-        activeRecordIndex={activeRecordIndex}
-        onSelectRecordIndex={setActiveRecordIndex}
-      />
+        </>
+      )}
 
       {/* 5. INDUSTRIAL STATUS BAR */}
       <StatusBar
@@ -1094,6 +1180,8 @@ export const App: React.FC = () => {
         activePrinter={activePrinter}
         snapToGrid={snapToGrid}
         setSnapToGrid={setSnapToGrid}
+        smartSnapping={smartSnapping}
+        setSmartSnapping={setSmartSnapping}
         showGrid={showGrid}
         setShowGrid={setShowGrid}
         selectedObjectName={
@@ -1218,6 +1306,15 @@ export const App: React.FC = () => {
       <AboutModal
         isOpen={isAboutModalOpen}
         onClose={() => setIsAboutModalOpen(false)}
+      />
+
+      <SaveAsTemplateModal
+        isOpen={isSaveAsTemplateModalOpen}
+        onClose={() => setIsSaveAsTemplateModalOpen(false)}
+        currentDocument={document}
+        onSaved={(tpl) => {
+          showToast(`Saved as template: "${tpl.name}"`);
+        }}
       />
 
       {/* Notification Toast */}
