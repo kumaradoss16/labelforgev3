@@ -36,6 +36,8 @@ export const SaveAsTemplateModal: React.FC<SaveAsTemplateModalProps> = ({
   const [category, setCategory] = useState<TemplateCategory>('custom');
   const [tagsInput, setTagsInput] = useState('custom, enterprise');
   const [author, setAuthor] = useState(document.author || 'Design Engineer');
+  const [version, setVersion] = useState<number>(1);
+  const [releaseNote, setReleaseNote] = useState('Initial baseline release');
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = (e: React.FormEvent) => {
@@ -57,6 +59,8 @@ export const SaveAsTemplateModal: React.FC<SaveAsTemplateModalProps> = ({
         category,
         tags,
         author: author.trim(),
+        version: Number(version) || 1,
+        changeSummary: releaseNote.trim() || 'Initial baseline release',
       });
 
       onSaved(name.trim());
@@ -155,6 +159,30 @@ export const SaveAsTemplateModal: React.FC<SaveAsTemplateModalProps> = ({
               placeholder="e.g. shipping, fedex, 4x6, thermal"
               className="w-full bg-[#12141a] border border-[#343a4a] focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white focus:outline-none"
             />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-1">
+              <label className="block font-semibold text-gray-300 mb-1">Version</label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={version}
+                onChange={(e) => setVersion(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full bg-[#12141a] border border-[#343a4a] focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block font-semibold text-gray-300 mb-1">Initial Release Note</label>
+              <input
+                type="text"
+                value={releaseNote}
+                onChange={(e) => setReleaseNote(e.target.value)}
+                placeholder="e.g. Production baseline release"
+                className="w-full bg-[#12141a] border border-[#343a4a] focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white focus:outline-none"
+              />
+            </div>
           </div>
 
           {/* Current Document Snapshot Details */}

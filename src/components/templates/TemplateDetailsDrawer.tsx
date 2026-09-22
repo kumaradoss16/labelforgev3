@@ -18,7 +18,8 @@ import {
   Sliders,
   CheckCircle2,
   Lock,
-  RefreshCw
+  RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 import { TemplateRecord, TemplateVariableDef } from '../../types/template';
 import { TemplatePreviewCanvas } from './TemplatePreviewCanvas';
@@ -32,6 +33,8 @@ interface TemplateDetailsDrawerProps {
   onDuplicate: (template: TemplateRecord) => void;
   onExport: (template: TemplateRecord) => void;
   onToggleFavorite: (id: string) => void;
+  onOpenVersionHistory?: (template: TemplateRecord) => void;
+  onRestoreVersion?: (template: TemplateRecord, targetVersion: number) => void;
 }
 
 export const TemplateDetailsDrawer: React.FC<TemplateDetailsDrawerProps> = ({
@@ -42,6 +45,8 @@ export const TemplateDetailsDrawer: React.FC<TemplateDetailsDrawerProps> = ({
   onDuplicate,
   onExport,
   onToggleFavorite,
+  onOpenVersionHistory,
+  onRestoreVersion,
 }) => {
   if (!template) return null;
 
@@ -50,6 +55,7 @@ export const TemplateDetailsDrawer: React.FC<TemplateDetailsDrawerProps> = ({
     template.sampleData || {}
   );
   const [showGrid, setShowGrid] = useState(false);
+  const [previewingVersion, setPreviewingVersion] = useState<number | null>(null);
 
   const handleVariableChange = (key: string, value: string) => {
     setLiveSampleData(prev => ({
@@ -301,27 +307,118 @@ export const TemplateDetailsDrawer: React.FC<TemplateDetailsDrawerProps> = ({
 
           {/* ================= VERSIONS TAB ================= */}
           {activeTab === 'versions' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-gray-400">
-                <span>Version Audit Log &amp; Snapshots</span>
-                <span className="font-mono text-blue-400">Current: v{template.version || 1}</span>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-gray-400 block">Version Audit Trail &amp; Snapshots</span>
+                  <span className="font-mono text-xs text-blue-400 font-semibold">Active Revision: v{template.version || 1}</span>
+                </div>
+                {onOpenVersionHistory && (
+                  <button
+                    onClick={() => onOpenVersionHistory(template)}
+                    className="px-3 py-1.5 rounded bg-blue-950/80 hover:bg-blue-900 border border-blue-800/60 text-blue-300 text-xs font-semibold flex items-center space-x-1.5 transition-colors"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    <span>Open Version Manager &amp; Diff</span>
+                  </button>
+                )}
               </div>
 
+              {/* Active Version Card */}
+              <div className="p-3.5 bg-[#1b1e28] border border-blue-600/50 rounded-lg text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-600 text-white font-bold font-mono text-[11px]">
+                      v{template.version || 1}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/60 text-[10px] font-semibold">
+                      CURRENT ACTIVE MASTER
+                    </span>
+                  </div>
+                  <span className="text-gray-400 text-[11px] font-mono">
+                    {new Date(template.updatedAt || template.modified || new Date()).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-gray-300 text-xs">{template.description || 'Current active template design'}</p>
+                <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1 border-t border-[#292f3e]">
+                  <span className="flex items-center space-x-1">
+                    <User className="w-3 h-3" />
+                    <span>Author: {template.createdBy || 'Design Engineer'}</span>
+                  </span>
+                  <span>{template.document.objects.length} vector objects</span>
+                </div>
+              </div>
+
+              {/* Historical Snapshots */}
               {template.versionHistory && template.versionHistory.length > 0 ? (
-                <div className="space-y-2">
-                  {template.versionHistory.map((ver, idx) => (
+                <div className="space-y-2.5 pt-1">
+                  <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block">
+                    Historical Milestones ({template.versionHistory.length})
+                  </span>
+                  {template.versionHistory.map((ver) => (
                     <div
-                      key={idx}
-                      className="p-3 bg-[#1e2129] border border-[#2e3342] rounded-lg text-xs space-y-1"
+                      key={ver.version}
+                      className="p-3 bg-[#1e2129] border border-[#2e3342] hover:border-gray-500/50 rounded-lg text-xs space-y-2 transition-all"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-white font-mono">v{ver.version}</span>
-                        <span className="text-gray-500 text-[10px]">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-white font-mono bg-[#282d3b] px-2 py-0.5 rounded border border-gray-700/50">
+                            v{ver.version}
+                          </span>
+                          {ver.isRestorationPoint && (
+                            <span className="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800/60 text-[9px] font-semibold">
+                              RESTORED
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-gray-400 text-[10px] font-mono">
                           {new Date(ver.updatedAt).toLocaleString()}
                         </span>
                       </div>
-                      <p className="text-gray-300 text-xs">{ver.changeSummary}</p>
-                      <span className="text-gray-500 text-[10px] block">By {ver.updatedBy}</span>
+
+                      <p className="text-gray-300 text-xs font-medium">{ver.changeSummary}</p>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-[#2a2f3d] text-[11px] text-gray-400">
+                        <span className="flex items-center space-x-1">
+                          <User className="w-3 h-3 text-gray-500" />
+                          <span>By {ver.updatedBy}</span>
+                        </span>
+                        
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setPreviewingVersion(previewingVersion === ver.version ? null : ver.version)}
+                            className="px-2 py-1 rounded bg-[#272b38] hover:bg-[#323849] text-gray-300 text-[11px] font-medium flex items-center space-x-1 transition-colors"
+                          >
+                            <span>{previewingVersion === ver.version ? 'Hide Preview' : 'Preview Snapshot'}</span>
+                          </button>
+
+                          {!template.isReadOnly && onRestoreVersion && (
+                            <button
+                              onClick={() => onRestoreVersion(template, ver.version)}
+                              className="px-2 py-1 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-800/60 text-amber-300 text-[11px] font-medium flex items-center space-x-1 transition-colors"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>Restore v{ver.version}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expandable Preview */}
+                      {previewingVersion === ver.version && (
+                        <div className="mt-2 pt-2 border-t border-[#2e3342] bg-[#12141a] p-2 rounded flex flex-col items-center">
+                          <span className="text-[10px] text-gray-400 mb-1 font-mono">
+                            Snapshot layout v{ver.version} ({ver.snapshotDoc?.dimensions?.width}×{ver.snapshotDoc?.dimensions?.height} {ver.snapshotDoc?.dimensions?.unit})
+                          </span>
+                          <div className="w-48 h-32 relative overflow-hidden bg-black/50 rounded border border-[#2b303c]">
+                            <TemplatePreviewCanvas
+                              document={ver.snapshotDoc}
+                              sampleData={template.sampleData}
+                              className="w-full h-full"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -352,6 +449,17 @@ export const TemplateDetailsDrawer: React.FC<TemplateDetailsDrawerProps> = ({
               <Copy className="w-3.5 h-3.5 text-cyan-400" />
               <span>Duplicate</span>
             </button>
+
+            {onOpenVersionHistory && (
+              <button
+                onClick={() => onOpenVersionHistory(template)}
+                className="px-3 py-2 rounded bg-[#252936] hover:bg-[#2f3545] text-blue-300 text-xs font-medium border border-blue-900/60 flex items-center space-x-1.5 transition-colors"
+                title="Open Version History & Audit Trail"
+              >
+                <History className="w-3.5 h-3.5 text-blue-400" />
+                <span>Version History (v{template.version || 1})</span>
+              </button>
+            )}
 
             {onEditMasterTemplate && !template.isReadOnly && (
               <button

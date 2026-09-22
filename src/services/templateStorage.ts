@@ -128,7 +128,8 @@ export function getTemplateById(id: string): TemplateRecord | undefined {
  */
 export function saveTemplate(
   template: TemplateRecord,
-  changeSummary: string = 'Updated template configuration'
+  changeSummary: string = 'Updated template configuration',
+  author?: string
 ): { success: boolean; template?: TemplateRecord; error?: string } {
   const templates = getStoredTemplates();
   const existingIdx = templates.findIndex(t => t.id === template.id);
@@ -145,19 +146,26 @@ export function saveTemplate(
     }
 
     const newVersion = (existing.version || 1) + 1;
+    const authorName = author || template.createdBy || existing.createdBy || 'Design Engineer';
     const versionRecord: TemplateVersionRecord = {
       version: existing.version || 1,
       updatedAt: existing.updatedAt || now,
-      updatedBy: existing.createdBy || 'Studio User',
-      changeSummary,
+      updatedBy: existing.createdBy || authorName,
+      changeSummary: changeSummary || `Revision v${existing.version || 1} update`,
       snapshotDoc: JSON.parse(JSON.stringify(existing.document)),
+      elementCount: existing.document.objects.length,
+      width: existing.width || existing.document.dimensions.width,
+      height: existing.height || existing.document.dimensions.height,
+      unit: existing.unit || existing.document.dimensions.unit,
+      orientation: existing.orientation || existing.document.dimensions.orientation,
     };
 
     const updatedTemplate: TemplateRecord = {
       ...template,
       version: newVersion,
       updatedAt: now,
-      versionHistory: [versionRecord, ...(existing.versionHistory || [])].slice(0, 15),
+      createdBy: authorName,
+      versionHistory: [versionRecord, ...(existing.versionHistory || [])].slice(0, 25),
       elementCount: template.document.objects.length,
     };
 
@@ -166,11 +174,13 @@ export function saveTemplate(
     return { success: true, template: updatedTemplate };
   } else {
     // New template
+    const authorName = author || template.createdBy || 'Design Engineer';
     const newTemplate: TemplateRecord = {
       ...template,
       version: 1,
       createdAt: now,
       updatedAt: now,
+      createdBy: authorName,
       usageCount: 0,
       elementCount: template.document.objects.length,
       versionHistory: [],
@@ -180,6 +190,182 @@ export function saveTemplate(
     persistTemplates(templates);
     return { success: true, template: newTemplate };
   }
+}
+
+/**
+ * Restores a template to a previous version snapshot
+ */
+export function restoreTemplateVersion(
+  templateId: string,
+  targetVersion: number,
+  author: string = 'Design Engineer',
+  customNote?: string
+): { success: boolean; template?: TemplateRecord; error?: string } {
+  const templates = getStoredTemplates();
+  const existingIdx = templates.findIndex(t => t.id === templateId);
+  if (existingIdx === -1) {
+    return { success: false, error: 'Template not found' };
+  }
+
+  const existing = templates[existingIdx];
+  if (existing.isReadOnly && existing.type === 'builtin') {
+    return { success: false, error: 'Cannot modify built-in standard template' };
+  }
+
+  // Find the snapshot in versionHistory
+  const snapshotRecord = (existing.versionHistory || []).find(v => v.version === targetVersion);
+  if (!snapshotRecord) {
+    return { success: false, error: `Version v${targetVersion} snapshot not found in audit history` };
+  }
+
+  const now = new Date().toISOString();
+  const nextVersionNumber = (existing.version || 1) + 1;
+
+  // Snapshot the CURRENT state before restoring so we never lose current progress
+  const currentSnapshot: TemplateVersionRecord = {
+    version: existing.version || 1,
+    updatedAt: existing.updatedAt || now,
+    updatedBy: existing.createdBy || author,
+    changeSummary: `Pre-restore snapshot before reverting to v${targetVersion}`,
+    snapshotDoc: JSON.parse(JSON.stringify(existing.document)),
+    elementCount: existing.document.objects.length,
+    width: existing.width || existing.document.dimensions.width,
+    height: existing.height || existing.document.dimensions.height,
+    unit: existing.unit || existing.document.dimensions.unit,
+    orientation: existing.orientation || existing.document.dimensions.orientation,
+    isRestorationPoint: true,
+    restoredFromVersion: targetVersion,
+  };
+
+  // Reconstitute document from snapshotDoc
+  const restoredDoc: LabelDocument = JSON.parse(JSON.stringify(snapshotRecord.snapshotDoc));
+  restoredDoc.modified = now;
+  if (!restoredDoc.metadata) {
+    restoredDoc.metadata = {
+      version: nextVersionNumber,
+      status: 'approved',
+    };
+  } else {
+    restoredDoc.metadata.version = nextVersionNumber;
+  }
+
+  const variables = extractVariablesFromDocument(restoredDoc);
+  const sampleData: Record<string, any> = {};
+  for (const v of variables) {
+    sampleData[v.key] = v.sampleValue || v.defaultValue || `[${v.key}]`;
+  }
+
+  let primarySymbology: string | undefined;
+  let supportsQr = false;
+  for (const obj of restoredDoc.objects) {
+    if (obj.type === 'barcode') {
+      primarySymbology = (obj as any).barcodeStyle?.symbology || 'code128';
+    } else if (obj.type === 'qrcode' || obj.type === 'datamatrix') {
+      supportsQr = true;
+    }
+  }
+
+  const updatedTemplate: TemplateRecord = {
+    ...existing,
+    version: nextVersionNumber,
+    updatedAt: now,
+    createdBy: author,
+    document: restoredDoc,
+    width: restoredDoc.dimensions.width,
+    height: restoredDoc.dimensions.height,
+    unit: (restoredDoc.dimensions.unit as any) || 'mm',
+    orientation: restoredDoc.dimensions.orientation || 'portrait',
+    elementCount: restoredDoc.objects.length,
+    primarySymbology,
+    supportsQr,
+    variables,
+    sampleData: { ...existing.sampleData, ...sampleData },
+    versionHistory: [
+      currentSnapshot,
+      ...(existing.versionHistory || []),
+    ].slice(0, 25),
+  };
+
+  templates[existingIdx] = updatedTemplate;
+  persistTemplates(templates);
+  return { success: true, template: updatedTemplate };
+}
+
+/**
+ * Creates a manual milestone version checkpoint
+ */
+export function createManualVersionCheckpoint(
+  templateId: string,
+  changeSummary: string,
+  author: string = 'Design Engineer'
+): { success: boolean; template?: TemplateRecord; error?: string } {
+  const templates = getStoredTemplates();
+  const existingIdx = templates.findIndex(t => t.id === templateId);
+  if (existingIdx === -1) {
+    return { success: false, error: 'Template not found' };
+  }
+
+  const existing = templates[existingIdx];
+  const now = new Date().toISOString();
+  const nextVersion = (existing.version || 1) + 1;
+
+  const versionRecord: TemplateVersionRecord = {
+    version: existing.version || 1,
+    updatedAt: now,
+    updatedBy: author,
+    changeSummary: changeSummary.trim() || `Milestone Checkpoint v${existing.version}`,
+    snapshotDoc: JSON.parse(JSON.stringify(existing.document)),
+    elementCount: existing.document.objects.length,
+    width: existing.width || existing.document.dimensions.width,
+    height: existing.height || existing.document.dimensions.height,
+    unit: existing.unit || existing.document.dimensions.unit,
+    orientation: existing.orientation || existing.document.dimensions.orientation,
+    isMilestone: true,
+  };
+
+  const updatedTemplate: TemplateRecord = {
+    ...existing,
+    version: nextVersion,
+    updatedAt: now,
+    createdBy: author,
+    versionHistory: [versionRecord, ...(existing.versionHistory || [])].slice(0, 25),
+  };
+
+  templates[existingIdx] = updatedTemplate;
+  persistTemplates(templates);
+  return { success: true, template: updatedTemplate };
+}
+
+/**
+ * Creates a new template by forking a specific historical version
+ */
+export function forkTemplateFromVersion(
+  templateId: string,
+  targetVersion: number,
+  newName: string,
+  author: string = 'Design Engineer'
+): { success: boolean; template?: TemplateRecord; error?: string } {
+  const template = getTemplateById(templateId);
+  if (!template) return { success: false, error: 'Template not found' };
+
+  let targetDoc: LabelDocument;
+  if (template.version === targetVersion) {
+    targetDoc = JSON.parse(JSON.stringify(template.document));
+  } else {
+    const snap = (template.versionHistory || []).find(v => v.version === targetVersion);
+    if (!snap) return { success: false, error: `Version v${targetVersion} snapshot not found` };
+    targetDoc = JSON.parse(JSON.stringify(snap.snapshotDoc));
+  }
+
+  const forked = createTemplateFromDocument(targetDoc, {
+    name: newName.trim() || `${template.name} (Forked v${targetVersion})`,
+    description: `Created from version v${targetVersion} of ${template.name}`,
+    category: template.category,
+    tags: [...template.tags, `fork-v${targetVersion}`],
+    author,
+  });
+
+  return { success: true, template: forked };
 }
 
 /**
@@ -193,6 +379,8 @@ export function createTemplateFromDocument(
     category: TemplateCategory;
     tags?: string[];
     author?: string;
+    version?: number;
+    changeSummary?: string;
   }
 ): TemplateRecord {
   const variables = extractVariablesFromDocument(doc);
@@ -231,7 +419,7 @@ export function createTemplateFromDocument(
     createdAt: now,
     updatedAt: now,
     createdBy: meta.author || doc.author || 'Design Engineer',
-    version: 1,
+    version: meta.version || 1,
     isReadOnly: false,
     isLocked: false,
     primarySymbology,
@@ -249,7 +437,7 @@ export function createTemplateFromDocument(
     usageCount: 0,
   };
 
-  saveTemplate(newTemplate, 'Initial template creation from active design');
+  saveTemplate(newTemplate, meta.changeSummary || 'Initial template creation from active design');
   return newTemplate;
 }
 

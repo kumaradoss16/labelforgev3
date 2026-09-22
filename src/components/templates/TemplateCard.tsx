@@ -13,7 +13,8 @@ import {
   Layers,
   Sparkles,
   Printer,
-  Info
+  Info,
+  History
 } from 'lucide-react';
 import { TemplateRecord } from '../../types/template';
 import { TemplatePreviewCanvas } from './TemplatePreviewCanvas';
@@ -28,6 +29,7 @@ interface TemplateCardProps {
   onExport: (template: TemplateRecord) => void;
   onDelete: (template: TemplateRecord) => void;
   onInspect: (template: TemplateRecord) => void;
+  onOpenVersionHistory?: (template: TemplateRecord) => void;
   isQuickPrintEnabled?: boolean;
 }
 
@@ -41,6 +43,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
   onExport,
   onDelete,
   onInspect,
+  onOpenVersionHistory,
 }) => {
   const [showMenu, setShowMenu] = useState(false);
 
@@ -125,11 +128,17 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
                   STANDARD
                 </span>
               )}
-              {template.version > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 text-[9px] font-mono">
-                  v{template.version}
-                </span>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenVersionHistory?.(template);
+                }}
+                className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-blue-950 text-zinc-300 hover:text-blue-300 hover:border-blue-700/60 border border-zinc-700 text-[10px] font-mono flex items-center space-x-1 transition-colors"
+                title="View Version History & Snapshots"
+              >
+                <History className="w-2.5 h-2.5 text-blue-400" />
+                <span>v{template.version || 1}</span>
+              </button>
             </div>
 
             <p className="text-gray-400 text-xs truncate mt-0.5">{template.description || 'Enterprise LabelForge design'}</p>
@@ -295,6 +304,18 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
 
             {showMenu && (
               <div className="absolute right-0 top-full mt-1 w-48 bg-[#181a22] border border-[#323644] rounded-lg shadow-2xl py-1 z-30 text-xs text-gray-200 animate-in fade-in zoom-in-95">
+                {onOpenVersionHistory && (
+                  <button
+                    onClick={() => {
+                      setShowMenu(false);
+                      onOpenVersionHistory(template);
+                    }}
+                    className="w-full flex items-center space-x-2 px-3 py-1.5 hover:bg-[#262a36] text-left text-blue-300"
+                  >
+                    <History className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Version History (v{template.version || 1})</span>
+                  </button>
+                )}
                 {onEditMasterTemplate && !template.isReadOnly && (
                   <button
                     onClick={() => {
@@ -402,6 +423,17 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
             <span>
               {template.width} × {template.height} {template.unit}
             </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenVersionHistory?.(template);
+              }}
+              className="px-1.5 py-0.2 rounded bg-[#161820] hover:bg-blue-950 text-gray-400 hover:text-blue-300 border border-[#2b303c] hover:border-blue-700/60 text-[10px] flex items-center space-x-1 transition-colors"
+              title="View Version History"
+            >
+              <History className="w-2.5 h-2.5 text-blue-400" />
+              <span>v{template.version || 1}</span>
+            </button>
           </div>
 
           <div className="flex items-center space-x-1">

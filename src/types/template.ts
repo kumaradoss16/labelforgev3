@@ -50,6 +50,14 @@ export interface TemplateVersionRecord {
   updatedBy: string;
   changeSummary: string;
   snapshotDoc: LabelDocument;
+  elementCount?: number;
+  width?: number;
+  height?: number;
+  unit?: string;
+  orientation?: 'portrait' | 'landscape';
+  isRestorationPoint?: boolean;
+  restoredFromVersion?: number;
+  isMilestone?: boolean;
 }
 
 export interface TemplatePrintConfig {

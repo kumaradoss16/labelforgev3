@@ -38,11 +38,13 @@ import {
   exportTemplatePackage,
   importTemplatePackage,
   restoreBuiltinTemplates,
-  cloneTemplateToDocument
+  cloneTemplateToDocument,
+  restoreTemplateVersion
 } from '../../services/templateStorage';
 import { TemplateCard } from './TemplateCard';
 import { TemplateDetailsDrawer } from './TemplateDetailsDrawer';
 import { NewTemplateModal } from './NewTemplateModal';
+import { TemplateVersionHistoryModal } from './TemplateVersionHistoryModal';
 import { LabelDocument } from '../../types/label';
 
 interface TemplateCenterProps {
@@ -80,6 +82,7 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
 
   // Inspection Drawer & Modals
   const [inspectedTemplate, setInspectedTemplate] = useState<TemplateRecord | null>(null);
+  const [versionHistoryTarget, setVersionHistoryTarget] = useState<TemplateRecord | null>(null);
   const [isNewTemplateModalOpen, setIsNewTemplateModalOpen] = useState(false);
   const [feedbackNotice, setFeedbackNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -88,6 +91,26 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
   const refreshTemplates = () => {
     const loaded = getStoredTemplates();
     setTemplates(loaded);
+  };
+
+  const handleOpenVersionHistory = (template: TemplateRecord) => {
+    setVersionHistoryTarget(template);
+  };
+
+  const handleDirectRestoreVersion = (template: TemplateRecord, targetVersion: number) => {
+    const res = restoreTemplateVersion(template.id, targetVersion);
+    if (res.success && res.template) {
+      showFeedback('success', `Restored template "${template.name}" to revision v${targetVersion} (now active as v${res.template.version}).`);
+      refreshTemplates();
+      if (inspectedTemplate?.id === template.id) {
+        setInspectedTemplate(res.template);
+      }
+      if (versionHistoryTarget?.id === template.id) {
+        setVersionHistoryTarget(res.template);
+      }
+    } else {
+      showFeedback('error', res.error || 'Failed to restore template version.');
+    }
   };
 
   useEffect(() => {
@@ -509,6 +532,7 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
                       onExport={handleExportTemplate}
                       onDelete={handleDeleteTemplate}
                       onInspect={(t) => setInspectedTemplate(t)}
+                      onOpenVersionHistory={handleOpenVersionHistory}
                     />
                   ))}
                 </div>
@@ -526,6 +550,7 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
                       onExport={handleExportTemplate}
                       onDelete={handleDeleteTemplate}
                       onInspect={(t) => setInspectedTemplate(t)}
+                      onOpenVersionHistory={handleOpenVersionHistory}
                     />
                   ))}
                 </div>
@@ -575,6 +600,27 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
         onDuplicate={handleDuplicateTemplate}
         onExport={handleExportTemplate}
         onToggleFavorite={handleToggleFavorite}
+        onOpenVersionHistory={handleOpenVersionHistory}
+        onRestoreVersion={handleDirectRestoreVersion}
+      />
+
+      {/* Version History & Diff Modal */}
+      <TemplateVersionHistoryModal
+        isOpen={Boolean(versionHistoryTarget)}
+        template={versionHistoryTarget}
+        onClose={() => setVersionHistoryTarget(null)}
+        onRestored={(updatedTpl, restoredVer) => {
+          refreshTemplates();
+          setVersionHistoryTarget(updatedTpl);
+          if (inspectedTemplate?.id === updatedTpl.id) {
+            setInspectedTemplate(updatedTpl);
+          }
+          showFeedback('success', `Successfully restored template "${updatedTpl.name}" to revision v${restoredVer} (now active as v${updatedTpl.version}).`);
+        }}
+        onUseVersion={(tpl, doc) => {
+          setVersionHistoryTarget(null);
+          onUseTemplateToDesign(doc, tpl);
+        }}
       />
 
       {/* New Template Modal */}
