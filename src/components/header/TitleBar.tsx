@@ -8,9 +8,6 @@ import {
   Scissors,
   Copy,
   Clipboard,
-  Minus,
-  Square,
-  X,
   Server,
   Database,
   Layers,
@@ -206,33 +203,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
             <span>WEB ENVIRONMENT</span>
           </span>
         )}
-      </div>
-
-      {/* Right: Windows Window Controls */}
-      <div className="flex items-center space-x-1">
-        <button
-          className="w-7 h-6 flex items-center justify-center hover:bg-[#2e333d] text-gray-400 hover:text-white transition-colors rounded-sm"
-          title="Minimize"
-        >
-          <Minus className="w-3 h-3" />
-        </button>
-        <button
-          className="w-7 h-6 flex items-center justify-center hover:bg-[#2e333d] text-gray-400 hover:text-white transition-colors rounded-sm"
-          title="Maximize / Restore"
-        >
-          <Square className="w-2.5 h-2.5" />
-        </button>
-        <button
-          onClick={() => {
-            if (isDesktopApp()) {
-              window.electronAPI?.app.quit();
-            }
-          }}
-          className="w-7 h-6 flex items-center justify-center hover:bg-red-600 text-gray-400 hover:text-white transition-colors rounded-sm"
-          title="Close (Alt+F4)"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
       </div>
     </header>
   );

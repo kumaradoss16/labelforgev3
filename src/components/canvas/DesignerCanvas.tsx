@@ -38,6 +38,7 @@ import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeL
 import { DataRecord, SerializationCounter } from '../../types/database';
 import { evaluateExpression } from '../../services/dataBinding';
 import { render1DBarcodeSvg, renderQRCodeDataUrl, generateDataMatrixSvg, generatePostal4StateSvg } from '../../services/barcodeEngine';
+import { barcodeCache } from '../../services/barcodeCache';
 import { getFontCssStack } from '../../services/fontFamilies';
 import { SAMPLE_TEMPLATES } from '../../services/sampleData';
 import { Rulers } from './Rulers';
@@ -366,7 +367,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
         const bObj = obj as BarcodeLabelObject;
         const evaluated = evaluateExpression(bObj.value, activeRecord, counter);
         const cacheKey = `${bObj.id}-${evaluated}-${bObj.barcodeStyle.errorCorrectionLevel || 'M'}-${bObj.barcodeStyle.color || '#000000'}-${bObj.barcodeStyle.backgroundColor || 'transparent'}`;
-        if (!qrCache[cacheKey]) {
+        
+        if (!barcodeCache.has(cacheKey)) {
           const url = await renderQRCodeDataUrl(
             evaluated,
             bObj.barcodeStyle.errorCorrectionLevel || 'M',
@@ -374,13 +376,19 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
             bObj.barcodeStyle.backgroundColor || 'transparent'
           );
           if (isMounted) {
+            barcodeCache.set(cacheKey, url);
             setQrCache(prev => ({ ...prev, [cacheKey]: url }));
+          }
+        } else if (!qrCache[cacheKey]) {
+          const cached = barcodeCache.get(cacheKey);
+          if (cached && isMounted) {
+            setQrCache(prev => ({ ...prev, [cacheKey]: cached }));
           }
         }
       }
     });
     return () => { isMounted = false; };
-  }, [doc.objects, activeRecord, counter, qrCache]);
+  }, [doc.objects, activeRecord, counter]);
 
   // Snap coordinate helper (Grid + Guides)
   const snap = useCallback((val: number, isVertical = false, step = 1): number => {
@@ -1581,7 +1589,7 @@ function renderObjectContent(
     const bObj = obj as BarcodeLabelObject;
     const evaluatedVal = evaluateExpression(bObj.value, activeRecord, counter);
     const cacheKey = `${bObj.id}-${evaluatedVal}-${bObj.barcodeStyle.errorCorrectionLevel || 'M'}-${bObj.barcodeStyle.color || '#000000'}-${bObj.barcodeStyle.backgroundColor || 'transparent'}`;
-    const qrDataUrl = qrCache[cacheKey];
+    const qrDataUrl = barcodeCache.get(cacheKey) || qrCache[cacheKey];
 
     if (!qrDataUrl) {
       return (

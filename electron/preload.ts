@@ -6,12 +6,26 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 // Expose controlled, namespaced API to window.electronAPI
-contextBridge.exposeInMainWorld('electronAPI', {
+const electronAPI = {
   isElectron: true,
 
   app: {
     getInfo: () => ipcRenderer.invoke('app:get-info'),
     quit: () => ipcRenderer.invoke('app:quit')
+  },
+
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    close: () => ipcRenderer.invoke('window:close'),
+    onMaximizeChanged: (callback: (isMaximized: boolean) => void) => {
+      const subscription = (_event: any, isMax: boolean) => callback(isMax);
+      ipcRenderer.on('window:maximize-changed', subscription);
+      return () => {
+        ipcRenderer.removeListener('window:maximize-changed', subscription);
+      };
+    }
   },
 
   dialog: {
@@ -59,4 +73,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('menu:action', subscription);
     };
   }
-});
+};
+
+contextBridge.exposeInMainWorld('electronAPI', electronAPI);
+// Backward compatibility and desktop runtime alias
+contextBridge.exposeInMainWorld('labelForge', electronAPI);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { TitleBar } from './components/header/TitleBar';
 import { Ribbon, RibbonTab } from './components/ribbon/Ribbon';
@@ -200,7 +200,7 @@ export const App: React.FC = () => {
   const selectedObject = document.objects.find(o => o.id === selectedObjectId) || null;
 
   // Preflight validation diagnostics
-  const diagnostics = runPreflightValidation(document);
+  const diagnostics = useMemo(() => runPreflightValidation(document), [document]);
 
   // Record history for Undo
   const pushHistory = (newDoc: LabelDocument) => {

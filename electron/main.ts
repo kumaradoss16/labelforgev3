@@ -29,6 +29,7 @@ function createMainWindow(): BrowserWindow {
   logger.info('Main', 'Creating desktop MainWindow...');
 
   const preloadScript = path.join(__dirname, 'preload.cjs');
+  const isFrameless = !process.env.DEV_WINDOW_FRAME;
 
   mainWindow = new BrowserWindow({
     width: appConfig.window.defaultWidth,
@@ -37,12 +38,28 @@ function createMainWindow(): BrowserWindow {
     minHeight: appConfig.window.minHeight,
     backgroundColor: appConfig.window.backgroundColor,
     title: 'LabelForge Studio Enterprise',
+    frame: !isFrameless,
+    titleBarStyle: isFrameless ? 'hidden' : 'default',
+    autoHideMenuBar: isFrameless,
     show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
       preload: preloadScript
+    }
+  });
+
+  // Broadcast maximize state changes to renderer custom controls
+  mainWindow.on('maximize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:maximize-changed', true);
+    }
+  });
+
+  mainWindow.on('unmaximize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:maximize-changed', false);
     }
   });
 
@@ -67,8 +84,12 @@ function createMainWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
-  // Build and attach Native Windows Menu
-  buildNativeMenu(mainWindow);
+  // Attach application menu (or keep hidden in frameless mode)
+  if (!isFrameless) {
+    buildNativeMenu(mainWindow);
+  } else {
+    Menu.setApplicationMenu(null);
+  }
 
   // Load appropriate target (Dev Server URL or packaged dist/index.html)
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || appConfig.devServerUrl;

@@ -145,3 +145,39 @@ export function subscribeToDesktopMenu(callback: (action: string) => void): () =
   }
   return () => {};
 }
+
+export async function desktopWindowMinimize(): Promise<void> {
+  if (isDesktopApp() && window.electronAPI?.window?.minimize) {
+    await window.electronAPI.window.minimize();
+  }
+}
+
+export async function desktopWindowToggleMaximize(): Promise<boolean> {
+  if (isDesktopApp() && window.electronAPI?.window?.toggleMaximize) {
+    return await window.electronAPI.window.toggleMaximize();
+  }
+  return false;
+}
+
+export async function desktopWindowIsMaximized(): Promise<boolean> {
+  if (isDesktopApp() && window.electronAPI?.window?.isMaximized) {
+    return await window.electronAPI.window.isMaximized();
+  }
+  return false;
+}
+
+export async function desktopWindowClose(): Promise<void> {
+  if (isDesktopApp() && window.electronAPI?.window?.close) {
+    await window.electronAPI.window.close();
+  } else {
+    window.close();
+  }
+}
+
+export function onDesktopWindowMaximizeChanged(callback: (isMaximized: boolean) => void): () => void {
+  if (isDesktopApp() && window.electronAPI?.window?.onMaximizeChanged) {
+    return window.electronAPI.window.onMaximizeChanged(callback);
+  }
+  return () => {};
+}
+

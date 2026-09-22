@@ -8,6 +8,10 @@ import { windowsPrinter } from '../../services/printer/windowsPrinter';
 import { networkPrinter } from '../../services/printer/networkPrinter';
 import { zplPrinter } from '../../services/printer/zplPrinter';
 import { tsplPrinter } from '../../services/printer/tsplPrinter';
+import { eplPrinter } from '../../services/printer/eplPrinter';
+import { cpclPrinter } from '../../services/printer/cpclPrinter';
+import { sbplPrinter } from '../../services/printer/sbplPrinter';
+import { dplPrinter } from '../../services/printer/dplPrinter';
 import { bartenderPrinter } from '../../services/printer/bartenderPrinter';
 import { PrintJobRequest, PrinterDefinition } from '../../services/printer/printerAdapter';
 import { validatePrintRequest } from '../../utils/validation';
@@ -41,13 +45,21 @@ export function registerPrinterHandlers(): void {
     try {
       validatePrintRequest(request);
 
-      switch (request.printerType) {
+      switch (request.printerType as string) {
         case 'network':
           return await networkPrinter.print(request);
         case 'zpl':
           return await zplPrinter.print(request);
         case 'tspl':
           return await tsplPrinter.print(request);
+        case 'epl':
+          return await eplPrinter.print(request);
+        case 'cpcl':
+          return await cpclPrinter.print(request);
+        case 'sbpl':
+          return await sbplPrinter.print(request);
+        case 'dpl':
+          return await dplPrinter.print(request);
         case 'bartender':
           return await bartenderPrinter.print(request);
         case 'windows':
@@ -70,11 +82,20 @@ export function registerPrinterHandlers(): void {
   ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl') => {
     logger.info('PrinterHandlers', `Test print triggered for ${printerName} with protocol ${protocol}`);
     try {
-      if (protocol === 'tspl') {
+      const proto = protocol.toLowerCase();
+      if (proto === 'tspl') {
         return await tsplPrinter.testPrint(printerName);
-      } else if (protocol === 'bartender') {
+      } else if (proto === 'epl') {
+        return await eplPrinter.testPrint(printerName);
+      } else if (proto === 'cpcl') {
+        return await cpclPrinter.testPrint(printerName);
+      } else if (proto === 'sbpl') {
+        return await sbplPrinter.testPrint(printerName);
+      } else if (proto === 'dpl') {
+        return await dplPrinter.testPrint(printerName);
+      } else if (proto === 'bartender') {
         return await bartenderPrinter.testPrint(printerName);
-      } else if (protocol === 'spooler') {
+      } else if (proto === 'spooler') {
         return await windowsPrinter.testPrint(printerName);
       } else {
         return await zplPrinter.testPrint(printerName);

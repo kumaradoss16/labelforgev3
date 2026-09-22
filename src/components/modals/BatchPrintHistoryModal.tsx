@@ -222,6 +222,120 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
     return printers.find((p) => p.id === reprintPrinterId) || printers[0];
   }, [printers, reprintPrinterId]);
 
+  // Track failed jobs in the currently filtered list
+  const failedFilteredJobs = useMemo(() => {
+    return filteredJobs.filter((j) => j.status === 'FAILED');
+  }, [filteredJobs]);
+
+  const [isRetryingAll, setIsRetryingAll] = useState(false);
+  const [retryProgress, setRetryProgress] = useState<{ current: number; total: number } | null>(null);
+
+  // Automatically iterate through all failed jobs in the filtered list and re-attempt print command
+  const handleRetryAllFailed = async () => {
+    if (failedFilteredJobs.length === 0) {
+      if (onShowToast) onShowToast('No failed jobs found in current filtered list.');
+      return;
+    }
+
+    setIsRetryingAll(true);
+    let successCount = 0;
+    let failCount = 0;
+    const updatedJobsMap = new Map<string, PrintJob>(printJobs.map((j) => [j.id, { ...j }]));
+
+    for (let i = 0; i < failedFilteredJobs.length; i++) {
+      const job = failedFilteredJobs[i];
+      setRetryProgress({ current: i + 1, total: failedFilteredJobs.length });
+
+      const targetPrinter = printers.find(
+        (p) => p.id === (job.actualPrinterId || job.printerId)
+      ) || printers[0];
+
+      const payloadToSend =
+        job.rawPayloadPreview ||
+        `^XA\n^FO50,50^ADN,36,20^FDRETRY: ${job.jobName}^FS\n^FO50,110^BCN,100,Y,N,N^FD${job.id}^FS\n^PQ${job.copies || 1},0,1,Y\n^XZ`;
+      const timestamp = new Date().toLocaleTimeString();
+
+      if (isDesktopApp() && targetPrinter) {
+        try {
+          const res = await desktopPrintLabel({
+            printerName: targetPrinter.systemPrinterName || targetPrinter.name,
+            printerType: targetPrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+            copies: job.copies || 1,
+            rawPayload: payloadToSend,
+            jobName: `[RETRY] ${job.jobName}`
+          });
+
+          if (res.success) {
+            successCount++;
+            const updated: PrintJob = {
+              ...job,
+              status: 'COMPLETED',
+              completedAt: timestamp,
+              retryCount: (job.retryCount || 0) + 1,
+              integrationResponseSummary: `Automated retry successful at ${timestamp}. Bytes written: ${res.bytesWritten || payloadToSend.length}`
+            };
+            updatedJobsMap.set(job.id, updated);
+          } else {
+            failCount++;
+            const updated: PrintJob = {
+              ...job,
+              retryCount: (job.retryCount || 0) + 1,
+              integrationResponseSummary: `Automated retry failed: ${res.error?.message || 'Device communication error'}`
+            };
+            updatedJobsMap.set(job.id, updated);
+          }
+        } catch (err: any) {
+          failCount++;
+          const updated: PrintJob = {
+            ...job,
+            retryCount: (job.retryCount || 0) + 1,
+            integrationResponseSummary: `Automated retry error: ${err.message}`
+          };
+          updatedJobsMap.set(job.id, updated);
+        }
+      } else {
+        // Web environment simulation
+        await new Promise((r) => setTimeout(r, 120));
+        successCount++;
+        const updated: PrintJob = {
+          ...job,
+          status: 'COMPLETED',
+          completedAt: timestamp,
+          retryCount: (job.retryCount || 0) + 1,
+          integrationResponseSummary: `Automated retry dispatched via Spooler simulation at ${timestamp}.`
+        };
+        updatedJobsMap.set(job.id, updated);
+      }
+    }
+
+    const newJobsList = Array.from(updatedJobsMap.values());
+    onUpdatePrintJobs(newJobsList);
+
+    if (onAddAuditLog) {
+      onAddAuditLog({
+        id: `AUD-RETRY-${Date.now().toString().slice(-6)}`,
+        timestamp: new Date().toLocaleString(),
+        userId: 'usr-batch-retry',
+        userName: (currentUserRole as UserRole) === 'SYSTEM_ADMIN' ? 'System Administrator' : 'Production Operator',
+        userRole: (currentUserRole as UserRole) || 'PRINT_MANAGER',
+        action: 'PRINT_JOB_REPRINTED',
+        entityType: 'PrintJobBatch',
+        entityId: `BATCH-RETRY-${failedFilteredJobs.length}`,
+        beforeValueJson: JSON.stringify({ totalFailed: failedFilteredJobs.length }),
+        afterValueJson: JSON.stringify({ successCount, failCount }),
+        result: failCount === 0 ? 'SUCCESS' : 'FAILURE',
+        details: `Batch retry of ${failedFilteredJobs.length} failed jobs executed (${successCount} succeeded, ${failCount} failed).`
+      });
+    }
+
+    setIsRetryingAll(false);
+    setRetryProgress(null);
+
+    if (onShowToast) {
+      onShowToast(`Retry All Failed completed: ${successCount} succeeded, ${failCount} failed.`);
+    }
+  };
+
   // Handle Quick Open Reprint
   const handleInitiateReprint = (job: PrintJob, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -460,6 +574,29 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
           </div>
 
           <div className="flex items-center space-x-3">
+            {/* Retry All Failed Button */}
+            <button
+              onClick={handleRetryAllFailed}
+              disabled={isRetryingAll || failedFilteredJobs.length === 0}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                failedFilteredJobs.length > 0
+                  ? 'bg-amber-600/90 hover:bg-amber-500 text-white shadow-md cursor-pointer border border-amber-500/50'
+                  : 'bg-zinc-800/60 text-zinc-500 border border-zinc-700/40 cursor-not-allowed'
+              } ${isRetryingAll ? 'opacity-80' : ''}`}
+              title={
+                failedFilteredJobs.length > 0
+                  ? `Iterate and retry all ${failedFilteredJobs.length} failed jobs in the filtered list`
+                  : 'No failed jobs in the current filtered list'
+              }
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isRetryingAll ? 'animate-spin' : ''}`} />
+              <span>
+                {isRetryingAll
+                  ? `Retrying (${retryProgress?.current || 0}/${retryProgress?.total || failedFilteredJobs.length})...`
+                  : `Retry All Failed (${failedFilteredJobs.length})`}
+              </span>
+            </button>
+
             <button
               onClick={() => setActiveTab('QUEUE')}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${

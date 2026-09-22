@@ -100,6 +100,14 @@ export interface ElectronAPI {
     quit(): Promise<void>;
   };
 
+  window: {
+    minimize(): Promise<void>;
+    toggleMaximize(): Promise<boolean>;
+    isMaximized(): Promise<boolean>;
+    close(): Promise<void>;
+    onMaximizeChanged(callback: (isMaximized: boolean) => void): () => void;
+  };
+
   dialog: {
     openFile(options?: OpenFileDialogOptions): Promise<{ canceled: boolean; filePath?: string; fileContent?: string }>;
     saveFile(options?: SaveFileDialogOptions): Promise<{ canceled: boolean; filePath?: string }>;
@@ -144,5 +152,6 @@ export interface ElectronAPI {
 declare global {
   interface Window {
     electronAPI?: ElectronAPI;
+    labelForge?: ElectronAPI;
   }
 }
