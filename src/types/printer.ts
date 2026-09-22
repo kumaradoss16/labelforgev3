@@ -123,6 +123,8 @@ export interface PrintJob {
   originalPrintJobId?: string;
   reprintReason?: string;
   auditReference?: string;
+  priority?: 'URGENT' | 'HIGH' | 'NORMAL' | 'LOW';
+  queuePosition?: number;
   // Technical Metadata recorded at time of print
   dpi?: number;
   paperSize?: string;
@@ -146,6 +148,8 @@ export type AuditAction =
   | 'PRINTER_DELETED'
   | 'PRINT_JOB_REQUESTED'
   | 'PRINT_JOB_CANCELLED'
+  | 'PRINT_JOB_PRIORITY_CHANGED'
+  | 'PRINT_JOB_REORDERED'
   | 'PRINT_JOB_RETRIED'
   | 'PRINT_JOB_REPRINTED'
   | 'DEFAULT_PRINTER_CHANGED'
