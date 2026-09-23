@@ -1,10 +1,10 @@
 /**
  * LabelForge Universal Printer Code Dispatcher
  * Multi-Protocol compiler supporting ZPL, TSPL, EPL, CPCL, SBPL, and DPL
+ * Exhaustive language dispatcher - Never silently falls back to default language
  */
 
 import { LabelDocument } from '../types/label';
-import { PrinterLanguage } from '../types/printer';
 import { generateZplFromDocument } from './zplGenerator';
 import { generateTsplFromDocument } from './tsplGenerator';
 import { generateEplFromDocument } from './eplGenerator';
@@ -12,7 +12,7 @@ import { generateCpclFromDocument } from './cpclGenerator';
 import { generateSbplFromDocument } from './sbplGenerator';
 import { generateDplFromDocument } from './dplGenerator';
 
-export type ExtendedPrinterLanguage = PrinterLanguage | 'SBPL' | 'DPL';
+export type PrinterLanguageCode = 'ZPL' | 'TSPL' | 'EPL' | 'CPCL' | 'SBPL' | 'DPL';
 
 export interface PrintCodeOptions {
   copies?: number;
@@ -21,28 +21,36 @@ export interface PrintCodeOptions {
   mediaType?: 'gap' | 'continuous' | 'black-mark';
 }
 
+export class UnsupportedPrinterLanguageError extends Error {
+  constructor(language: string) {
+    super(`Unsupported printer language: "${language}". No valid printer generator is registered for this language.`);
+    this.name = 'UnsupportedPrinterLanguageError';
+  }
+}
+
+const printerGenerators: Record<string, (doc: LabelDocument, options?: PrintCodeOptions) => string> = {
+  ZPL: generateZplFromDocument,
+  TSPL: generateTsplFromDocument,
+  EPL: generateEplFromDocument,
+  CPCL: generateCpclFromDocument,
+  SBPL: generateSbplFromDocument,
+  DPL: generateDplFromDocument
+};
+
+/**
+ * Compiles a LabelDocument into native printer raw payload based on target language
+ */
 export function generatePrinterCode(
-  language: ExtendedPrinterLanguage,
+  language: string,
   doc: LabelDocument,
   options?: PrintCodeOptions
 ): string {
-  switch (language) {
-    case 'ZPL':
-      return generateZplFromDocument(doc, options);
-    case 'TSPL':
-      return generateTsplFromDocument(doc, options);
-    case 'EPL':
-      return generateEplFromDocument(doc, options);
-    case 'CPCL':
-      return generateCpclFromDocument(doc, options);
-    case 'SBPL':
-      return generateSbplFromDocument(doc, options);
-    case 'DPL':
-      return generateDplFromDocument(doc, options);
-    case 'Windows-GDI':
-    case 'PDF':
-    default:
-      // Default to ZPL standard intermediate representation
-      return generateZplFromDocument(doc, options);
+  const upperLang = (language || '').toUpperCase();
+  const generator = printerGenerators[upperLang];
+
+  if (!generator) {
+    throw new UnsupportedPrinterLanguageError(language);
   }
+
+  return generator(doc, options);
 }

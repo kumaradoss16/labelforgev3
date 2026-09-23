@@ -10,21 +10,8 @@ import { logger } from '../../utils/logger';
 
 export class SbplPrinterAdapter implements PrinterAdapter {
   public async discover(): Promise<PrinterDefinition[]> {
-    return [
-      {
-        id: 'sbpl-cl4nx',
-        name: 'SATO CL4NX Plus (SBPL)',
-        displayName: 'SATO CL4NX Plus Industrial (SBPL)',
-        type: 'network',
-        isDefault: false,
-        status: 0,
-        description: 'SATO SBPL Industrial Thermal Printer',
-        host: '127.0.0.1',
-        port: 9100,
-        dpi: 300,
-        protocolsSupported: ['zpl']
-      }
-    ];
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter(p => /sato|sbpl|cl4nx|pw4/i.test(p.name));
   }
 
   public async print(request: PrintJobRequest): Promise<PrintJobResponse> {
@@ -38,9 +25,11 @@ export class SbplPrinterAdapter implements PrinterAdapter {
   public async testPrint(printerName: string): Promise<PrintJobResponse> {
     const ESC = '\x1B';
     const testSbpl = `${ESC}A${ESC}A1${ESC}H0050${ESC}V0050${ESC}L0202${ESC}MLABELFORGE SATO SBPL TEST OK${ESC}Q1${ESC}Z`;
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
     return await this.print({
       printerName,
-      printerType: 'network',
+      printerType: isIpHost ? 'network' : 'sbpl',
+      networkHost: isIpHost ? printerName : undefined,
       rawPayload: testSbpl,
       copies: 1
     });

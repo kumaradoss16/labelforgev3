@@ -3,7 +3,7 @@
  * Exposes secure IPC communication channels between Renderer and Main Process
  */
 
-import { LForgePackage } from '../services/lforgePackage';
+import { LForgePackage } from './lforge';
 
 export interface ElectronAppInfo {
   version: string;
@@ -34,7 +34,7 @@ export interface NativePrinterInfo {
 
 export interface DesktopPrintRequest {
   printerName: string;
-  printerType: 'windows' | 'network' | 'zpl' | 'tspl' | 'bartender';
+  printerType: 'windows' | 'network' | 'zpl' | 'tspl' | 'epl' | 'cpcl' | 'sbpl' | 'dpl' | 'bartender';
   copies?: number;
   rawPayload?: string; // ZPL, TSPL, EPL command stream
   networkHost?: string;
@@ -128,13 +128,7 @@ export interface ElectronAPI {
     list(): Promise<NativePrinterInfo[]>;
     getDefault(): Promise<NativePrinterInfo | null>;
     print(request: DesktopPrintRequest): Promise<DesktopPrintResult>;
-    testPrint(printerName: string, protocol?: 'zpl' | 'tspl' | 'spooler'): Promise<DesktopPrintResult>;
-  };
-
-  filesystem: {
-    read(path: string): Promise<string>;
-    write(path: string, content: string): Promise<void>;
-    exists(path: string): Promise<boolean>;
+    testPrint(printerName: string, protocol?: string): Promise<DesktopPrintResult>;
   };
 
   system: {

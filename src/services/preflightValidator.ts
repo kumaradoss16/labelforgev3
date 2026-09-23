@@ -1,6 +1,7 @@
 /**
  * LabelForge Preflight Validation Engine
  * Inspects label documents against barcode standards, geometric boundaries, and printer capabilities
+ * Produces deterministic diagnostic IDs
  */
 
 import { LabelDocument, PreflightDiagnostic, TextLabelObject, BarcodeLabelObject } from '../types/label';
@@ -10,6 +11,8 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
   const diagnostics: PreflightDiagnostic[] = [];
   const { width: docW, height: docH } = doc.dimensions;
 
+  let ruleCounter = 0;
+
   // 1. Boundary & Overlap checks
   for (const obj of doc.objects) {
     if (!obj.visible) continue;
@@ -17,7 +20,7 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
     // Check if object is fully or partially out of label bounds
     if (obj.x < 0 || obj.y < 0) {
       diagnostics.push({
-        id: `diag-bound-neg-${obj.id}`,
+        id: `diagnostic-${obj.id}-neg_bounds-${ruleCounter++}`,
         objectId: obj.id,
         severity: 'error',
         category: 'geometry',
@@ -28,7 +31,7 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
 
     if (obj.x + obj.width > docW || obj.y + obj.height > docH) {
       diagnostics.push({
-        id: `diag-bound-clip-${obj.id}`,
+        id: `diagnostic-${obj.id}-clip_bounds-${ruleCounter++}`,
         objectId: obj.id,
         severity: 'warning',
         category: 'geometry',
@@ -40,12 +43,12 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
     // 2. Barcode-specific validation
     if (obj.type === 'barcode' || obj.type === 'qrcode' || obj.type === 'datamatrix') {
       const bObj = obj as BarcodeLabelObject;
-      const symbology = bObj.barcodeStyle.symbology;
+      const symbology = bObj.barcodeStyle?.symbology || 'code128';
       const val = bObj.value;
 
       if (!val || val.trim() === '') {
         diagnostics.push({
-          id: `diag-empty-bc-${obj.id}`,
+          id: `diagnostic-${obj.id}-empty_payload-${ruleCounter++}`,
           objectId: obj.id,
           severity: 'blocker',
           category: 'barcode',
@@ -55,9 +58,9 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
       }
 
       // Check quiet zones
-      if (bObj.barcodeStyle.quietZone && bObj.x < (bObj.barcodeStyle.quietZoneSize || 3)) {
+      if (bObj.barcodeStyle?.quietZone && bObj.x < (bObj.barcodeStyle.quietZoneSize || 3)) {
         diagnostics.push({
-          id: `diag-qz-left-${obj.id}`,
+          id: `diagnostic-${obj.id}-quiet_zone-${ruleCounter++}`,
           objectId: obj.id,
           severity: 'warning',
           category: 'barcode',
@@ -72,7 +75,7 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
         if (parsed.hasErrors) {
           for (const err of parsed.errors) {
             diagnostics.push({
-              id: `diag-gs1-${obj.id}-${Math.random()}`,
+              id: `diagnostic-${obj.id}-gs1_syntax-${ruleCounter++}`,
               objectId: obj.id,
               severity: 'error',
               category: 'barcode',
@@ -85,10 +88,10 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
 
       // EAN-13 validation
       if (symbology === 'ean13') {
-        const clean = val.replace(/\D/g, '');
+        const clean = (val || '').replace(/\D/g, '');
         if (clean.length !== 13) {
           diagnostics.push({
-            id: `diag-ean13-len-${obj.id}`,
+            id: `diagnostic-${obj.id}-ean13_len-${ruleCounter++}`,
             objectId: obj.id,
             severity: 'error',
             category: 'barcode',
@@ -97,7 +100,7 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
           });
         } else if (!validateModulo10CheckDigit(clean)) {
           diagnostics.push({
-            id: `diag-ean13-check-${obj.id}`,
+            id: `diagnostic-${obj.id}-ean13_check-${ruleCounter++}`,
             objectId: obj.id,
             severity: 'error',
             category: 'barcode',
@@ -109,10 +112,10 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
 
       // UPC-A validation
       if (symbology === 'upca') {
-        const clean = val.replace(/\D/g, '');
+        const clean = (val || '').replace(/\D/g, '');
         if (clean.length !== 12) {
           diagnostics.push({
-            id: `diag-upca-len-${obj.id}`,
+            id: `diagnostic-${obj.id}-upca_len-${ruleCounter++}`,
             objectId: obj.id,
             severity: 'error',
             category: 'barcode',
@@ -128,7 +131,7 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
       const textObj = obj as TextLabelObject;
       if (!textObj.text || textObj.text.trim() === '') {
         diagnostics.push({
-          id: `diag-empty-txt-${obj.id}`,
+          id: `diagnostic-${obj.id}-empty_text-${ruleCounter++}`,
           objectId: obj.id,
           severity: 'info',
           category: 'font',
@@ -142,7 +145,7 @@ export function runPreflightValidation(doc: LabelDocument): PreflightDiagnostic[
   // General info summary if clean
   if (diagnostics.filter(d => d.severity === 'error' || d.severity === 'blocker').length === 0) {
     diagnostics.push({
-      id: 'diag-clean-pass',
+      id: `diagnostic-clean-pass-0`,
       severity: 'info',
       category: 'printer',
       message: 'All preflight checks passed. Template is ready for production thermal or Windows spooler dispatch.',

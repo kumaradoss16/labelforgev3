@@ -1,11 +1,11 @@
 /**
  * LabelForge Desktop - Printer IPC Handlers
- * Dispatches print jobs to Windows Spooler, Thermal Raw Sockets, and BarTender
+ * Validates requests and dispatches print jobs to Windows Spooler, RAW Sockets, or BarTender
  */
 
 import { ipcMain } from 'electron';
 import { windowsPrinter } from '../../services/printer/windowsPrinter';
-import { networkPrinter } from '../../services/printer/networkPrinter';
+import { networkPrinter, validateNetworkDestination } from '../../services/printer/networkPrinter';
 import { zplPrinter } from '../../services/printer/zplPrinter';
 import { tsplPrinter } from '../../services/printer/tsplPrinter';
 import { eplPrinter } from '../../services/printer/eplPrinter';
@@ -13,8 +13,9 @@ import { cpclPrinter } from '../../services/printer/cpclPrinter';
 import { sbplPrinter } from '../../services/printer/sbplPrinter';
 import { dplPrinter } from '../../services/printer/dplPrinter';
 import { bartenderPrinter } from '../../services/printer/bartenderPrinter';
-import { PrintJobRequest, PrinterDefinition } from '../../services/printer/printerAdapter';
+import { PrintJobRequest, PrinterDefinition, PrintJobResponse } from '../../services/printer/printerAdapter';
 import { validatePrintRequest } from '../../utils/validation';
+import { auditService } from '../../services/system/auditService';
 import { logger } from '../../utils/logger';
 
 export function registerPrinterHandlers(): void {
@@ -39,35 +40,93 @@ export function registerPrinterHandlers(): void {
   });
 
   // Print Label Request
-  ipcMain.handle('printer:print', async (_event, request: PrintJobRequest) => {
-    logger.info('PrinterHandlers', `Received print request for ${request.printerName} (${request.printerType})`);
+  ipcMain.handle('printer:print', async (_event, request: PrintJobRequest): Promise<PrintJobResponse> => {
+    logger.info('PrinterHandlers', `Received print request for printer "${request.printerName}" (type: ${request.printerType})`);
 
     try {
       validatePrintRequest(request);
 
-      switch (request.printerType as string) {
+      if (request.networkHost) {
+        const netVal = validateNetworkDestination(request.networkHost, request.networkPort);
+        if (!netVal.valid) {
+          auditService.recordEvent({
+            action: 'PRINT_JOB_REQUESTED',
+            user: 'Operator',
+            role: 'OPERATOR',
+            resource: request.printerName || 'Network Printer',
+            result: 'FAILURE',
+            errorMessage: netVal.error
+          });
+          return {
+            success: false,
+            error: {
+              code: 'ERR_INVALID_NETWORK_DEST',
+              message: netVal.error || 'Invalid network printer destination'
+            }
+          };
+        }
+      }
+
+      let result: PrintJobResponse;
+      const type = (request.printerType || 'windows').toLowerCase();
+
+      switch (type) {
         case 'network':
-          return await networkPrinter.print(request);
+          result = await networkPrinter.print(request);
+          break;
         case 'zpl':
-          return await zplPrinter.print(request);
+          result = await zplPrinter.print(request);
+          break;
         case 'tspl':
-          return await tsplPrinter.print(request);
+          result = await tsplPrinter.print(request);
+          break;
         case 'epl':
-          return await eplPrinter.print(request);
+          result = await eplPrinter.print(request);
+          break;
         case 'cpcl':
-          return await cpclPrinter.print(request);
+          result = await cpclPrinter.print(request);
+          break;
         case 'sbpl':
-          return await sbplPrinter.print(request);
+          result = await sbplPrinter.print(request);
+          break;
         case 'dpl':
-          return await dplPrinter.print(request);
+          result = await dplPrinter.print(request);
+          break;
         case 'bartender':
-          return await bartenderPrinter.print(request);
+          result = await bartenderPrinter.print(request);
+          break;
         case 'windows':
         default:
-          return await windowsPrinter.print(request);
+          result = await windowsPrinter.print(request);
+          break;
       }
+
+      auditService.recordEvent({
+        action: 'PRINT_JOB_REQUESTED',
+        user: 'Operator',
+        role: 'OPERATOR',
+        resource: request.printerName,
+        result: result.success ? 'SUCCESS' : 'FAILURE',
+        details: {
+          printerType: request.printerType,
+          copies: request.copies || 1,
+          jobId: result.jobId,
+          bytesWritten: result.bytesWritten
+        },
+        errorMessage: result.error?.message
+      });
+
+      return result;
     } catch (err: any) {
-      logger.error('PrinterHandlers', `Print job failed: ${err.message}`);
+      logger.error('PrinterHandlers', `Print job dispatch error: ${err.message}`);
+      auditService.recordEvent({
+        action: 'PRINT_JOB_REQUESTED',
+        user: 'Operator',
+        role: 'OPERATOR',
+        resource: request.printerName || 'Unknown',
+        result: 'FAILURE',
+        errorMessage: err.message
+      });
       return {
         success: false,
         error: {
@@ -79,29 +138,51 @@ export function registerPrinterHandlers(): void {
   });
 
   // Test Print
-  ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl') => {
+  ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl'): Promise<PrintJobResponse> => {
     logger.info('PrinterHandlers', `Test print triggered for ${printerName} with protocol ${protocol}`);
     try {
       const proto = protocol.toLowerCase();
+      let res: PrintJobResponse;
+
       if (proto === 'tspl') {
-        return await tsplPrinter.testPrint(printerName);
+        res = await tsplPrinter.testPrint(printerName);
       } else if (proto === 'epl') {
-        return await eplPrinter.testPrint(printerName);
+        res = await eplPrinter.testPrint(printerName);
       } else if (proto === 'cpcl') {
-        return await cpclPrinter.testPrint(printerName);
+        res = await cpclPrinter.testPrint(printerName);
       } else if (proto === 'sbpl') {
-        return await sbplPrinter.testPrint(printerName);
+        res = await sbplPrinter.testPrint(printerName);
       } else if (proto === 'dpl') {
-        return await dplPrinter.testPrint(printerName);
+        res = await dplPrinter.testPrint(printerName);
       } else if (proto === 'bartender') {
-        return await bartenderPrinter.testPrint(printerName);
+        res = await bartenderPrinter.testPrint(printerName);
       } else if (proto === 'spooler') {
-        return await windowsPrinter.testPrint(printerName);
+        res = await windowsPrinter.testPrint(printerName);
       } else {
-        return await zplPrinter.testPrint(printerName);
+        res = await zplPrinter.testPrint(printerName);
       }
+
+      auditService.recordEvent({
+        action: 'TEST_PRINT_DISPATCHED',
+        user: 'Operator',
+        role: 'OPERATOR',
+        resource: printerName,
+        result: res.success ? 'SUCCESS' : 'FAILURE',
+        details: { protocol },
+        errorMessage: res.error?.message
+      });
+
+      return res;
     } catch (err: any) {
       logger.error('PrinterHandlers', `Test print failed: ${err.message}`);
+      auditService.recordEvent({
+        action: 'TEST_PRINT_DISPATCHED',
+        user: 'Operator',
+        role: 'OPERATOR',
+        resource: printerName,
+        result: 'FAILURE',
+        errorMessage: err.message
+      });
       return {
         success: false,
         error: {

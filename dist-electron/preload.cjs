@@ -2,11 +2,24 @@
 
 // electron/preload.ts
 var import_electron = require("electron");
-import_electron.contextBridge.exposeInMainWorld("electronAPI", {
+var electronAPI = {
   isElectron: true,
   app: {
     getInfo: () => import_electron.ipcRenderer.invoke("app:get-info"),
     quit: () => import_electron.ipcRenderer.invoke("app:quit")
+  },
+  window: {
+    minimize: () => import_electron.ipcRenderer.invoke("window:minimize"),
+    toggleMaximize: () => import_electron.ipcRenderer.invoke("window:toggle-maximize"),
+    isMaximized: () => import_electron.ipcRenderer.invoke("window:is-maximized"),
+    close: () => import_electron.ipcRenderer.invoke("window:close"),
+    onMaximizeChanged: (callback) => {
+      const subscription = (_event, isMax) => callback(isMax);
+      import_electron.ipcRenderer.on("window:maximize-changed", subscription);
+      return () => {
+        import_electron.ipcRenderer.removeListener("window:maximize-changed", subscription);
+      };
+    }
   },
   dialog: {
     openFile: (options) => import_electron.ipcRenderer.invoke("dialog:open-file", options),
@@ -28,11 +41,6 @@ import_electron.contextBridge.exposeInMainWorld("electronAPI", {
     print: (request) => import_electron.ipcRenderer.invoke("printer:print", request),
     testPrint: (printerName, protocol) => import_electron.ipcRenderer.invoke("printer:test", printerName, protocol)
   },
-  filesystem: {
-    read: (path) => import_electron.ipcRenderer.invoke("file:read", path),
-    write: (path, content) => import_electron.ipcRenderer.invoke("file:write", path, content),
-    exists: (path) => import_electron.ipcRenderer.invoke("file:exists", path)
-  },
   system: {
     getInfo: () => import_electron.ipcRenderer.invoke("system:get-info")
   },
@@ -47,5 +55,7 @@ import_electron.contextBridge.exposeInMainWorld("electronAPI", {
       import_electron.ipcRenderer.removeListener("menu:action", subscription);
     };
   }
-});
+};
+import_electron.contextBridge.exposeInMainWorld("electronAPI", electronAPI);
+import_electron.contextBridge.exposeInMainWorld("labelForge", electronAPI);
 //# sourceMappingURL=preload.cjs.map

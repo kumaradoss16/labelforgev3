@@ -1,11 +1,11 @@
 /**
  * LabelForge Desktop - Secure Electron Preload Bridge
- * Strict context isolation with no direct Node API exposure
+ * Strict context isolation with domain-specific IPC contracts only
  */
 
 import { contextBridge, ipcRenderer } from 'electron';
 
-// Expose controlled, namespaced API to window.electronAPI
+// Expose controlled, namespaced API to window.electronAPI and window.labelForge
 const electronAPI = {
   isElectron: true,
 
@@ -51,12 +51,6 @@ const electronAPI = {
     testPrint: (printerName: string, protocol?: string) => ipcRenderer.invoke('printer:test', printerName, protocol)
   },
 
-  filesystem: {
-    read: (path: string) => ipcRenderer.invoke('file:read', path),
-    write: (path: string, content: string) => ipcRenderer.invoke('file:write', path, content),
-    exists: (path: string) => ipcRenderer.invoke('file:exists', path)
-  },
-
   system: {
     getInfo: () => ipcRenderer.invoke('system:get-info')
   },
@@ -76,5 +70,4 @@ const electronAPI = {
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
-// Backward compatibility and desktop runtime alias
 contextBridge.exposeInMainWorld('labelForge', electronAPI);

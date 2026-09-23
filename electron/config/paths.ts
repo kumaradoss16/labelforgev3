@@ -43,6 +43,10 @@ class PathManager {
     return this.userDataDir;
   }
 
+  public getAppDataDir(): string {
+    return this.getUserDataDir();
+  }
+
   public getSettingsDir(): string {
     return path.join(this.userDataDir, 'settings');
   }

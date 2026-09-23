@@ -10,21 +10,8 @@ import { logger } from '../../utils/logger';
 
 export class EplPrinterAdapter implements PrinterAdapter {
   public async discover(): Promise<PrinterDefinition[]> {
-    return [
-      {
-        id: 'epl-lp2844',
-        name: 'Zebra LP 2844 (EPL)',
-        displayName: 'Zebra LP 2844 / TLP 2844 (EPL-2)',
-        type: 'network',
-        isDefault: false,
-        status: 0,
-        description: 'EPL-2 Direct Thermal Desktop Printer',
-        host: '127.0.0.1',
-        port: 9100,
-        dpi: 203,
-        protocolsSupported: ['epl']
-      }
-    ];
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter(p => /epl|eltron|2844|zebra/i.test(p.name));
   }
 
   public async print(request: PrintJobRequest): Promise<PrintJobResponse> {
@@ -37,9 +24,11 @@ export class EplPrinterAdapter implements PrinterAdapter {
 
   public async testPrint(printerName: string): Promise<PrintJobResponse> {
     const testEpl = 'N\nq400\nQ200,24\nA50,50,0,4,1,1,N,"LABELFORGE EPL TEST OK"\nP1,1\n';
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
     return await this.print({
       printerName,
-      printerType: 'network',
+      printerType: isIpHost ? 'network' : 'epl',
+      networkHost: isIpHost ? printerName : undefined,
       rawPayload: testEpl,
       copies: 1
     });

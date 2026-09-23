@@ -1,55 +1,13 @@
 /**
- * LabelForge Platform - Canonical .lforge Package Specification
- * Secure, self-contained, enterprise label package format
+ * LabelForge Platform - Canonical .lforge Package Specification & Utilities
  */
 
-import { LabelDocument } from '../types/label';
+import { LabelDocument, LabelObject } from '../types/label';
+import { LForgeManifest, LForgePackage, computeDocumentChecksum } from '../types/lforge';
+import { migrateLForgePackage } from './lforgeMigration';
 
-export interface LForgeManifest {
-  format: 'LabelForge Package';
-  extension: '.lforge';
-  schemaVersion: '2.0.0';
-  minimumReaderVersion: '1.0.0';
-  producerVersion: 'LabelForge Studio 2026.3 Enterprise';
-  templateId: string;
-  versionId: string;
-  name: string;
-  createdAt: string;
-  modifiedAt: string;
-  author: string;
-  checksum: string;
-  requiredFonts: string[];
-  requiredSymbologies: string[];
-  targetPrinters?: string[];
-  security: {
-    encrypted: boolean;
-    sanitized: boolean;
-    allowExternalDataBinding: boolean;
-  };
-}
-
-export interface LForgePackage {
-  manifest: LForgeManifest;
-  document: LabelDocument;
-  assets?: Record<string, string>; // e.g. base64 or SVG assets
-  previews?: {
-    thumbnailSvg?: string;
-    targetDpi?: number;
-  };
-}
-
-/**
- * Computes deterministic simple hex hash for checksum verification
- */
-function computeChecksum(content: string): string {
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return 'lf-' + Math.abs(hash).toString(16).padStart(8, '0');
-}
+export type { LForgeManifest, LForgePackage };
+export { computeDocumentChecksum };
 
 /**
  * Validates document and extracts required dependencies (fonts, symbologies)
@@ -61,16 +19,18 @@ export function extractPackageDependencies(doc: LabelDocument): {
   const fonts = new Set<string>();
   const symbologies = new Set<string>();
 
-  for (const obj of doc.objects) {
-    if (obj.type === 'text' || obj.type === 'rich-text') {
-      const textObj = obj as any;
-      if (textObj.style?.fontFamily) {
-        fonts.add(textObj.style.fontFamily);
-      }
-    } else if (obj.type === 'barcode' || obj.type === 'qrcode' || obj.type === 'datamatrix') {
-      const barcodeObj = obj as any;
-      if (barcodeObj.barcodeStyle?.symbology) {
-        symbologies.add(barcodeObj.barcodeStyle.symbology);
+  if (doc && Array.isArray(doc.objects)) {
+    for (const obj of doc.objects) {
+      if (obj.type === 'text' || obj.type === 'rich-text') {
+        const textObj = obj as any;
+        if (textObj.style?.fontFamily) {
+          fonts.add(textObj.style.fontFamily);
+        }
+      } else if (obj.type === 'barcode' || obj.type === 'qrcode' || obj.type === 'datamatrix') {
+        const barcodeObj = obj as any;
+        if (barcodeObj.barcodeStyle?.symbology) {
+          symbologies.add(barcodeObj.barcodeStyle.symbology);
+        }
       }
     }
   }
@@ -83,28 +43,45 @@ export function extractPackageDependencies(doc: LabelDocument): {
 
 /**
  * Creates an authentic canonical .lforge package from a LabelDocument
+ * Normalizes object schema and computes SHA-256 checksum on exact document
  */
 export function createLForgePackage(doc: LabelDocument): LForgePackage {
-  const docJson = JSON.stringify(doc);
-  const checksum = computeChecksum(docJson);
-  const { requiredFonts, requiredSymbologies } = extractPackageDependencies(doc);
+  const normalizedObjects = (doc.objects || []).map((obj: any) => ({
+    ...obj,
+    rotation: typeof obj.rotation === 'number' ? obj.rotation : 0,
+    visible: obj.visible !== false,
+    locked: Boolean(obj.locked),
+    opacity: typeof obj.opacity === 'number' ? obj.opacity : 1,
+    zIndex: typeof obj.zIndex === 'number' ? obj.zIndex : 1
+  }));
+
+  // 1. Finalize document modifications first
+  const finalizedDoc: LabelDocument = {
+    ...doc,
+    schemaVersion: '2.0.0',
+    objects: normalizedObjects as LabelObject[],
+    created: doc.created || new Date().toISOString(),
+    modified: new Date().toISOString()
+  };
+
+  // 2. Compute checksum on finalized document payload
+  const checksum = computeDocumentChecksum(finalizedDoc);
+  const { requiredFonts, requiredSymbologies } = extractPackageDependencies(finalizedDoc);
 
   const manifest: LForgeManifest = {
     format: 'LabelForge Package',
     extension: '.lforge',
-    schemaVersion: '2.0.0',
-    minimumReaderVersion: '1.0.0',
-    producerVersion: 'LabelForge Studio 2026.3 Enterprise',
-    templateId: doc.id || `lft-${Date.now()}`,
-    versionId: `v${doc.metadata?.version || 1}.0`,
-    name: doc.name || 'Untitled Label',
-    createdAt: doc.created || new Date().toISOString(),
-    modifiedAt: new Date().toISOString(),
-    author: doc.author || 'LabelForge Engineer',
+    schemaVersion: 2,
+    producerVersion: 'LabelForge Studio 3.0.0 Enterprise',
+    templateId: finalizedDoc.id || `lft-${Date.now()}`,
+    name: finalizedDoc.name || 'Untitled Label',
+    createdAt: finalizedDoc.created,
+    modifiedAt: finalizedDoc.modified,
+    author: finalizedDoc.author || 'LabelForge Engineer',
     checksum,
     requiredFonts,
     requiredSymbologies,
-    targetPrinters: doc.metadata?.targetPrinter ? [doc.metadata.targetPrinter] : ['Zebra ZPL', 'TSC TSPL', 'Standard Windows'],
+    targetPrinters: finalizedDoc.metadata?.targetPrinter ? [finalizedDoc.metadata.targetPrinter] : ['Zebra ZPL', 'TSC TSPL', 'Standard Windows'],
     security: {
       encrypted: false,
       sanitized: true,
@@ -113,83 +90,68 @@ export function createLForgePackage(doc: LabelDocument): LForgePackage {
   };
 
   return {
+    format: 'lforge',
+    schemaVersion: 2,
     manifest,
-    document: {
-      ...doc,
-      modified: new Date().toISOString(),
-    },
+    document: finalizedDoc
   };
 }
 
 /**
- * Securely parses and validates an incoming .lforge file or legacy .btw.json
- * Defends against Zip Slip / path traversal / malformed structures
+ * Securely parses and validates an incoming .lforge file or legacy .json payload
+ * Checks structural schema integrity and verifies document checksum
  */
 export function parseAndValidateLForgePackage(rawContent: string): {
   success: boolean;
+  package?: LForgePackage;
   document?: LabelDocument;
   manifest?: LForgeManifest;
   warnings: string[];
+  code?: string;
   error?: string;
 } {
   const warnings: string[] = [];
 
   try {
     const parsed = JSON.parse(rawContent);
+    const pkg = migrateLForgePackage(parsed);
 
-    // Case 1: Canonical .lforge package
-    if (parsed.manifest && parsed.document) {
-      const doc = parsed.document as LabelDocument;
-      if (!doc.dimensions || !Array.isArray(doc.objects)) {
-        return {
-          success: false,
-          warnings,
-          error: 'Corrupted .lforge package: Missing canonical document geometry or objects array.',
-        };
-      }
-
-      // Security check: Path traversal verification in names / IDs
-      if (doc.name && (doc.name.includes('../') || doc.name.includes('..\\'))) {
-        return {
-          success: false,
-          warnings,
-          error: 'Security violation: Path traversal characters detected in template name.',
-        };
-      }
-
-      // Verify checksum
-      const currentChecksum = computeChecksum(JSON.stringify(doc));
-      if (parsed.manifest.checksum && parsed.manifest.checksum !== currentChecksum) {
-        warnings.push('Manifest checksum mismatch: Template was edited outside of authenticated studio session.');
-      }
-
+    // Security check: Path traversal verification in names
+    if (pkg.document.name && (pkg.document.name.includes('../') || pkg.document.name.includes('..\\'))) {
       return {
-        success: true,
-        document: doc,
-        manifest: parsed.manifest,
+        success: false,
         warnings,
+        code: 'SECURITY_VIOLATION',
+        error: 'Security violation: Path traversal characters detected in project metadata.',
       };
     }
 
-    // Case 2: Direct LabelDocument (legacy / raw JSON)
-    if (parsed.dimensions && Array.isArray(parsed.objects)) {
-      warnings.push('Imported legacy unencapsulated JSON document. Automatically upgrading to canonical .lforge package.');
+    // Verify SHA-256 checksum
+    const computedChecksum = computeDocumentChecksum(pkg.document);
+    if (parsed.manifest?.checksum && parsed.manifest.checksum !== 'checksum-pending' && parsed.manifest.checksum !== 'legacy-import' && parsed.manifest.checksum !== computedChecksum) {
       return {
-        success: true,
-        document: parsed as LabelDocument,
+        success: false,
         warnings,
+        code: 'CHECKSUM_MISMATCH',
+        error: `The project file checksum failed validation. The file may have been modified or corrupted. Claimed: ${parsed.manifest.checksum}, Computed: ${computedChecksum}`,
       };
     }
+
+    // Assign final valid checksum to manifest
+    pkg.manifest.checksum = computedChecksum;
 
     return {
-      success: false,
+      success: true,
+      package: pkg,
+      document: pkg.document,
+      manifest: pkg.manifest,
       warnings,
-      error: 'Unrecognized file structure: Neither canonical .lforge nor valid LabelDocument schema.',
     };
   } catch (err: any) {
     return {
       success: false,
       warnings,
+      code: 'PARSE_FAILURE',
       error: `JSON parse failure: ${err?.message || 'Malformed data'}`,
     };
   }

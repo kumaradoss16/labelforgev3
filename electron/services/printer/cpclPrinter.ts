@@ -10,21 +10,8 @@ import { logger } from '../../utils/logger';
 
 export class CpclPrinterAdapter implements PrinterAdapter {
   public async discover(): Promise<PrinterDefinition[]> {
-    return [
-      {
-        id: 'cpcl-qln420',
-        name: 'Zebra QLn420 (CPCL)',
-        displayName: 'Zebra QLn420 / ZQ630 Mobile (CPCL)',
-        type: 'network',
-        isDefault: false,
-        status: 0,
-        description: 'CPCL Mobile Direct Thermal Printer',
-        host: '127.0.0.1',
-        port: 9100,
-        dpi: 203,
-        protocolsSupported: ['tspl', 'zpl']
-      }
-    ];
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter(p => /cpcl|mobile|qln|zq/i.test(p.name));
   }
 
   public async print(request: PrintJobRequest): Promise<PrintJobResponse> {
@@ -37,9 +24,11 @@ export class CpclPrinterAdapter implements PrinterAdapter {
 
   public async testPrint(printerName: string): Promise<PrintJobResponse> {
     const testCpcl = '! 0 200 200 210 1\nTEXT 7 0 20 20 LABELFORGE CPCL TEST OK\nFORM\nPRINT\n';
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
     return await this.print({
       printerName,
-      printerType: 'network',
+      printerType: isIpHost ? 'network' : 'cpcl',
+      networkHost: isIpHost ? printerName : undefined,
       rawPayload: testCpcl,
       copies: 1
     });

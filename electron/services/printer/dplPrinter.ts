@@ -10,21 +10,8 @@ import { logger } from '../../utils/logger';
 
 export class DplPrinterAdapter implements PrinterAdapter {
   public async discover(): Promise<PrinterDefinition[]> {
-    return [
-      {
-        id: 'dpl-iclass',
-        name: 'Datamax I-4212e (DPL)',
-        displayName: 'Datamax I-Class Mark II (DPL)',
-        type: 'network',
-        isDefault: false,
-        status: 0,
-        description: 'Datamax-O\'Neil DPL Industrial Printer',
-        host: '127.0.0.1',
-        port: 9100,
-        dpi: 203,
-        protocolsSupported: ['tspl']
-      }
-    ];
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter(p => /datamax|dpl|honeywell|oneil/i.test(p.name));
   }
 
   public async print(request: PrintJobRequest): Promise<PrintJobResponse> {
@@ -39,9 +26,11 @@ export class DplPrinterAdapter implements PrinterAdapter {
     const SOH = '\x01';
     const STX = '\x02';
     const testDpl = `${SOH}D${STX}LD11121100000500050LABELFORGE DPL TEST OK\r\nQ0001\r\nE\r\n`;
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
     return await this.print({
       printerName,
-      printerType: 'network',
+      printerType: isIpHost ? 'network' : 'dpl',
+      networkHost: isIpHost ? printerName : undefined,
       rawPayload: testDpl,
       copies: 1
     });

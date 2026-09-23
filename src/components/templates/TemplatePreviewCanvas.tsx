@@ -1,124 +1,103 @@
 import React from 'react';
-import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, ImageLabelObject } from '../../types/label';
-import { resolveTemplateVariables } from '../../services/templateStorage';
+import {
+  LabelDocument,
+  LabelObject,
+  TextLabelObject,
+  BarcodeLabelObject,
+  ShapeLabelObject,
+  ImageLabelObject,
+} from '../../types/label';
 
 interface TemplatePreviewCanvasProps {
   document: LabelDocument;
-  sampleData?: Record<string, any>;
   className?: string;
   showGrid?: boolean;
 }
 
 export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   document,
-  sampleData = {},
   className = '',
   showGrid = false,
 }) => {
-  const { width, height, unit = 'mm', orientation = 'portrait', cornerRadius = 0 } = document.dimensions;
-
-  // ViewBox bounds (scaled to document dimension in mm)
-  const viewBoxWidth = width;
-  const viewBoxHeight = height;
+  const viewBoxWidth = document.dimensions?.width || 100;
+  const viewBoxHeight = document.dimensions?.height || 150;
+  const cornerRadius = document.dimensions?.cornerRadius || 0;
 
   const renderObject = (obj: LabelObject) => {
     if (!obj.visible) return null;
 
-    const key = obj.id;
-    const transform = `rotate(${obj.rotation || 0} ${obj.x + obj.width / 2} ${obj.y + obj.height / 2})`;
+    const key = `preview-${obj.id}`;
+    const transform = obj.rotation ? `rotate(${obj.rotation}, ${obj.x + obj.width / 2}, ${obj.y + obj.height / 2})` : undefined;
 
     switch (obj.type) {
-      case 'text': {
+      case 'text':
+      case 'rich-text': {
         const textObj = obj as TextLabelObject;
-        const resolvedText = resolveTemplateVariables(textObj.text || '', sampleData);
-        const lines = resolvedText.split('\n');
-        const fontSize = (textObj.style.fontSize || 10) * 0.352778; // pt to mm approx
-        const lineHeight = fontSize * (textObj.style.lineHeight || 1.2);
-        
-        let textAnchor = 'start';
-        let xPos = textObj.x;
-        if (textObj.style.alignment === 'center') {
-          textAnchor = 'middle';
-          xPos = textObj.x + textObj.width / 2;
-        } else if (textObj.style.alignment === 'right') {
-          textAnchor = 'end';
-          xPos = textObj.x + textObj.width;
-        }
+        const fontSize = textObj.style?.fontSize ? textObj.style.fontSize * 0.352778 : 4; // Convert pt to mm approx
+        const fill = textObj.style?.color || '#000000';
+        const fontWeight = textObj.style?.fontWeight || 'normal';
+        const fontFamily = textObj.style?.fontFamily || 'Inter, sans-serif';
 
         return (
-          <g key={key} transform={transform} opacity={textObj.opacity ?? 1}>
-            <text
-              x={xPos}
-              y={textObj.y + fontSize}
-              fill={textObj.style.color || '#000000'}
-              fontFamily={textObj.style.fontFamily || 'Segoe UI, sans-serif'}
-              fontSize={fontSize}
-              fontWeight={textObj.style.fontWeight || 'normal'}
-              textAnchor={textAnchor}
-              style={{ userSelect: 'none' }}
-            >
-              {lines.map((line, idx) => (
-                <tspan key={idx} x={xPos} dy={idx === 0 ? 0 : lineHeight}>
-                  {line}
-                </tspan>
-              ))}
-            </text>
-          </g>
+          <text
+            key={key}
+            x={textObj.x}
+            y={textObj.y + textObj.height * 0.8}
+            fontSize={fontSize}
+            fill={fill}
+            fontWeight={fontWeight}
+            fontFamily={fontFamily}
+            transform={transform}
+            opacity={textObj.opacity ?? 1}
+          >
+            {textObj.text || 'Text'}
+          </text>
         );
       }
 
       case 'barcode': {
-        const bcObj = obj as BarcodeLabelObject;
-        const resolvedValue = resolveTemplateVariables(bcObj.value || '', sampleData);
-        const style = bcObj.barcodeStyle;
-        const strokeColor = style?.color || '#000000';
-        const humanReadable = style?.humanReadable ?? true;
-
-        // Generate synthetic barcode bars for high-fidelity vector rendering in preview
-        const barCount = Math.max(12, Math.floor(bcObj.width / 1.5));
-        const bars = [];
-        for (let i = 0; i < barCount; i++) {
-          // Semi-random deterministic bar patterns based on char codes
-          const isThick = (i % 3 === 0) || ((resolvedValue.charCodeAt(i % resolvedValue.length) || 0) % 2 === 1);
-          const barWidth = isThick ? 0.9 : 0.45;
-          const xOffset = bcObj.x + (i * (bcObj.width / barCount));
-          bars.push(
-            <rect
-              key={i}
-              x={xOffset}
-              y={bcObj.y}
-              width={barWidth}
-              height={humanReadable ? bcObj.height - 3.5 : bcObj.height}
-              fill={strokeColor}
-            />
-          );
-        }
+        const barcodeObj = obj as BarcodeLabelObject;
+        const fill = barcodeObj.barcodeStyle?.color || '#000000';
+        const numBars = 24;
+        const barWidth = barcodeObj.width / numBars;
 
         return (
-          <g key={key} transform={transform} opacity={bcObj.opacity ?? 1}>
-            {/* Barcode background if any */}
-            {style?.backgroundColor && style.backgroundColor !== 'transparent' && (
-              <rect
-                x={bcObj.x}
-                y={bcObj.y}
-                width={bcObj.width}
-                height={bcObj.height}
-                fill={style.backgroundColor}
-              />
-            )}
-            {bars}
-            {humanReadable && (
+          <g key={key} transform={transform} opacity={barcodeObj.opacity ?? 1}>
+            {/* Background */}
+            <rect
+              x={barcodeObj.x}
+              y={barcodeObj.y}
+              width={barcodeObj.width}
+              height={barcodeObj.height}
+              fill={barcodeObj.barcodeStyle?.backgroundColor || '#ffffff'}
+            />
+            {/* Simulated Barcode Lines */}
+            {Array.from({ length: numBars }).map((_, i) => {
+              if (i % 2 === 0 || i % 5 === 0) {
+                return (
+                  <rect
+                    key={`bar-${i}`}
+                    x={barcodeObj.x + i * barWidth}
+                    y={barcodeObj.y}
+                    width={barWidth * 0.8}
+                    height={barcodeObj.height * (barcodeObj.barcodeStyle?.humanReadable ? 0.8 : 1.0)}
+                    fill={fill}
+                  />
+                );
+              }
+              return null;
+            })}
+            {/* Human Readable Text */}
+            {barcodeObj.barcodeStyle?.humanReadable && (
               <text
-                x={bcObj.x + bcObj.width / 2}
-                y={bcObj.y + bcObj.height - 0.5}
-                fill={strokeColor}
-                fontFamily={style?.humanReadableFont || 'monospace'}
-                fontSize={(style?.humanReadableSize || 8) * 0.3}
-                fontWeight="bold"
+                x={barcodeObj.x + barcodeObj.width / 2}
+                y={barcodeObj.y + barcodeObj.height - 0.5}
+                fontSize={Math.min(3, barcodeObj.height * 0.18)}
                 textAnchor="middle"
-                style={{ userSelect: 'none' }}
+                fill={fill}
+                fontFamily="Courier, monospace"
               >
-                {resolvedValue}
+                {barcodeObj.value || '12345678'}
               </text>
             )}
           </g>
@@ -127,43 +106,38 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
 
       case 'qrcode':
       case 'datamatrix': {
-        const qrObj = obj as BarcodeLabelObject;
-        const isDM = obj.type === 'datamatrix';
-        const gridSize = isDM ? 10 : 8;
-        const cellSize = Math.min(qrObj.width, qrObj.height) / gridSize;
-        const color = qrObj.barcodeStyle?.color || '#000000';
-
-        // Synthetic 2D matrix matrix points
-        const cells = [];
-        for (let r = 0; r < gridSize; r++) {
-          for (let c = 0; c < gridSize; c++) {
-            // Corners always filled for QR finder patterns
-            const isCorner =
-              !isDM &&
-              ((r < 3 && c < 3) ||
-                (r < 3 && c >= gridSize - 3) ||
-                (r >= gridSize - 3 && c < 3));
-            const isFilled = isCorner || (r * c + r + c) % 3 === 0;
-
-            if (isFilled) {
-              cells.push(
-                <rect
-                  key={`${r}-${c}`}
-                  x={qrObj.x + c * cellSize}
-                  y={qrObj.y + r * cellSize}
-                  width={cellSize * 0.95}
-                  height={cellSize * 0.95}
-                  fill={color}
-                  rx={0.1}
-                />
-              );
-            }
-          }
-        }
+        const barcodeObj = obj as BarcodeLabelObject;
+        const fill = barcodeObj.barcodeStyle?.color || '#000000';
+        const gridSize = 6;
+        const cellSize = Math.min(barcodeObj.width, barcodeObj.height) / gridSize;
 
         return (
-          <g key={key} transform={transform} opacity={qrObj.opacity ?? 1}>
-            {cells}
+          <g key={key} transform={transform} opacity={barcodeObj.opacity ?? 1}>
+            <rect
+              x={barcodeObj.x}
+              y={barcodeObj.y}
+              width={barcodeObj.width}
+              height={barcodeObj.height}
+              fill={barcodeObj.barcodeStyle?.backgroundColor || '#ffffff'}
+            />
+            {/* 2D Pattern Simulation */}
+            {Array.from({ length: gridSize }).map((_, r) =>
+              Array.from({ length: gridSize }).map((_, c) => {
+                if ((r + c) % 2 === 0 || (r === 0 && c === 0) || (r === 0 && c === gridSize - 1)) {
+                  return (
+                    <rect
+                      key={`cell-${r}-${c}`}
+                      x={barcodeObj.x + c * cellSize}
+                      y={barcodeObj.y + r * cellSize}
+                      width={cellSize}
+                      height={cellSize}
+                      fill={fill}
+                    />
+                  );
+                }
+                return null;
+              })
+            )}
           </g>
         );
       }
@@ -173,7 +147,6 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
         const fill = shapeObj.shapeStyle?.fillColor || 'transparent';
         const stroke = shapeObj.shapeStyle?.strokeColor || '#000000';
         const strokeWidth = shapeObj.shapeStyle?.strokeWidth || 0.5;
-        const rx = shapeObj.shapeStyle?.borderRadius || 0;
 
         return (
           <rect
@@ -182,11 +155,11 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
             y={shapeObj.y}
             width={shapeObj.width}
             height={shapeObj.height}
-            rx={rx}
-            ry={rx}
             fill={fill}
             stroke={stroke}
             strokeWidth={strokeWidth}
+            rx={shapeObj.shapeStyle?.borderRadius || 0}
+            ry={shapeObj.shapeStyle?.borderRadius || 0}
             transform={transform}
             opacity={shapeObj.opacity ?? 1}
           />
@@ -231,23 +204,6 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
             strokeWidth={strokeWidth}
             transform={transform}
             opacity={shapeObj.opacity ?? 1}
-          />
-        );
-      }
-
-      case 'line': {
-        const lineObj = obj as any;
-        return (
-          <line
-            key={key}
-            x1={lineObj.x}
-            y1={lineObj.y}
-            x2={lineObj.x + lineObj.width}
-            y2={lineObj.y + lineObj.height}
-            stroke={lineObj.style?.stroke || '#000000'}
-            strokeWidth={lineObj.style?.strokeWidth || 0.8}
-            transform={transform}
-            opacity={lineObj.opacity ?? 1}
           />
         );
       }

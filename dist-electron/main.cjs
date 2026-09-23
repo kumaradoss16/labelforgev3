@@ -24,7 +24,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // electron/main.ts
 var import_electron9 = require("electron");
-var import_path6 = __toESM(require("path"), 1);
+var import_path8 = __toESM(require("path"), 1);
 
 // electron/config/paths.ts
 var import_path = __toESM(require("path"), 1);
@@ -56,6 +56,9 @@ var PathManager = class {
   }
   getUserDataDir() {
     return this.userDataDir;
+  }
+  getAppDataDir() {
+    return this.getUserDataDir();
   }
   getSettingsDir() {
     return import_path.default.join(this.userDataDir, "settings");
@@ -167,6 +170,34 @@ function registerAppHandlers() {
   import_electron2.ipcMain.handle("app:quit", async () => {
     import_electron2.app.quit();
   });
+  import_electron2.ipcMain.handle("window:minimize", async (event) => {
+    const win = import_electron2.BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      win.minimize();
+    }
+  });
+  import_electron2.ipcMain.handle("window:toggle-maximize", async (event) => {
+    const win = import_electron2.BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return false;
+    if (win.isMaximized()) {
+      win.unmaximize();
+      return false;
+    } else {
+      win.maximize();
+      return true;
+    }
+  });
+  import_electron2.ipcMain.handle("window:is-maximized", async (event) => {
+    const win = import_electron2.BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return false;
+    return win.isMaximized();
+  });
+  import_electron2.ipcMain.handle("window:close", async (event) => {
+    const win = import_electron2.BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      win.close();
+    }
+  });
 }
 
 // electron/ipc/dialog/dialogHandlers.ts
@@ -267,6 +298,7 @@ var import_electron4 = require("electron");
 
 // electron/services/filesystem/projectStorage.ts
 var import_path4 = __toESM(require("path"), 1);
+var import_fs6 = __toESM(require("fs"), 1);
 
 // electron/services/filesystem/fileManager.ts
 var import_fs4 = __toESM(require("fs"), 1);
@@ -404,8 +436,239 @@ var RecentProjectsService = class {
 };
 var recentProjects = new RecentProjectsService();
 
+// src/types/lforge.ts
+function canonicalizeJson(obj) {
+  if (obj === null || typeof obj !== "object") {
+    return JSON.stringify(obj);
+  }
+  if (Array.isArray(obj)) {
+    return "[" + obj.map((item) => canonicalizeJson(item)).join(",") + "]";
+  }
+  const sortedKeys = Object.keys(obj).sort();
+  const keyValues = sortedKeys.map((key) => `${JSON.stringify(key)}:${canonicalizeJson(obj[key])}`);
+  return "{" + keyValues.join(",") + "}";
+}
+function computeDocumentChecksum(doc) {
+  const canonicalStr = canonicalizeJson(doc);
+  return simpleSha256(canonicalStr);
+}
+function simpleSha256(str) {
+  let h0 = 1779033703, h1 = 3144134277, h2 = 1013904242, h3 = 2773480762;
+  let h4 = 1359893119, h5 = 2600822924, h6 = 528734635, h7 = 1541459225;
+  const K = [
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ];
+  const utf8 = [];
+  for (let i = 0; i < str.length; i++) {
+    let charcode = str.charCodeAt(i);
+    if (charcode < 128) utf8.push(charcode);
+    else if (charcode < 2048) {
+      utf8.push(192 | charcode >> 6, 128 | charcode & 63);
+    } else if (charcode < 55296 || charcode >= 57344) {
+      utf8.push(224 | charcode >> 12, 128 | charcode >> 6 & 63, 128 | charcode & 63);
+    } else {
+      i++;
+      charcode = 65536 + ((charcode & 831) << 10 | str.charCodeAt(i) & 831);
+      utf8.push(240 | charcode >> 18, 128 | charcode >> 12 & 63, 128 | charcode >> 6 & 63, 128 | charcode & 63);
+    }
+  }
+  const bitLen = utf8.length * 8;
+  utf8.push(128);
+  while (utf8.length % 64 !== 56) utf8.push(0);
+  const highBits = Math.floor(bitLen / 4294967296);
+  const lowBits = bitLen % 4294967296;
+  for (let i = 24; i >= 0; i -= 8) utf8.push(highBits >> i & 255);
+  for (let i = 24; i >= 0; i -= 8) utf8.push(lowBits >> i & 255);
+  const w = new Array(64);
+  for (let i = 0; i < utf8.length; i += 64) {
+    for (let j = 0; j < 16; j++) {
+      w[j] = utf8[i + j * 4] << 24 | utf8[i + j * 4 + 1] << 16 | utf8[i + j * 4 + 2] << 8 | utf8[i + j * 4 + 3];
+    }
+    for (let j = 16; j < 64; j++) {
+      const s0 = (w[j - 15] >>> 7 | w[j - 15] << 25) ^ (w[j - 15] >>> 18 | w[j - 15] << 14) ^ w[j - 15] >>> 3;
+      const s1 = (w[j - 2] >>> 17 | w[j - 2] << 15) ^ (w[j - 2] >>> 19 | w[j - 2] << 13) ^ w[j - 2] >>> 10;
+      w[j] = w[j - 16] + s0 + w[j - 7] + s1 | 0;
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+    for (let j = 0; j < 64; j++) {
+      const S1 = (e >>> 6 | e << 26) ^ (e >>> 11 | e << 21) ^ (e >>> 25 | e << 7);
+      const ch = e & f ^ ~e & g;
+      const temp1 = h + S1 + ch + K[j] + w[j] | 0;
+      const S0 = (a >>> 2 | a << 30) ^ (a >>> 13 | a << 19) ^ (a >>> 22 | a << 10);
+      const maj = a & b ^ a & c ^ b & c;
+      const temp2 = S0 + maj | 0;
+      h = g;
+      g = f;
+      f = e;
+      e = d + temp1 | 0;
+      d = c;
+      c = b;
+      b = a;
+      a = temp1 + temp2 | 0;
+    }
+    h0 = h0 + a | 0;
+    h1 = h1 + b | 0;
+    h2 = h2 + c | 0;
+    h3 = h3 + d | 0;
+    h4 = h4 + e | 0;
+    h5 = h5 + f | 0;
+    h6 = h6 + g | 0;
+    h7 = h7 + h | 0;
+  }
+  const toHex = (n) => (n >>> 0).toString(16).padStart(8, "0");
+  return "sha256-" + toHex(h0) + toHex(h1) + toHex(h2) + toHex(h3) + toHex(h4) + toHex(h5) + toHex(h6) + toHex(h7);
+}
+
+// src/services/lforgeMigration.ts
+function migrateLForgePackage(pkg) {
+  if (!pkg) {
+    throw new Error("Cannot migrate empty package");
+  }
+  if (pkg.dimensions && Array.isArray(pkg.objects) && !pkg.manifest) {
+    const legacyDoc = pkg;
+    return {
+      format: "lforge",
+      schemaVersion: 2,
+      manifest: {
+        format: "LabelForge Package",
+        extension: ".lforge",
+        schemaVersion: 2,
+        producerVersion: "LabelForge Studio 3.0.0 Migration",
+        templateId: legacyDoc.id || `lft-${Date.now()}`,
+        name: legacyDoc.name || "Migrated Label",
+        createdAt: legacyDoc.created || (/* @__PURE__ */ new Date()).toISOString(),
+        modifiedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        author: legacyDoc.author || "Design Engineer",
+        checksum: "checksum-pending",
+        requiredFonts: ["Inter", "Arial"],
+        requiredSymbologies: ["Code128"],
+        security: {
+          encrypted: false,
+          sanitized: true,
+          allowExternalDataBinding: true
+        }
+      },
+      document: {
+        ...legacyDoc,
+        schemaVersion: "2.0.0"
+      }
+    };
+  }
+  let document = pkg.document;
+  if (!document || !document.dimensions || !Array.isArray(document.objects)) {
+    throw new Error("Invalid or corrupted document schema in package");
+  }
+  const migratedObjects = document.objects.map((obj) => {
+    return {
+      ...obj,
+      rotation: typeof obj.rotation === "number" ? obj.rotation : 0,
+      visible: obj.visible !== false,
+      locked: Boolean(obj.locked)
+    };
+  });
+  document = {
+    ...document,
+    objects: migratedObjects,
+    schemaVersion: "2.0.0"
+  };
+  const manifest = {
+    format: "LabelForge Package",
+    extension: ".lforge",
+    schemaVersion: 2,
+    producerVersion: "LabelForge Studio 3.0.0",
+    templateId: pkg.manifest?.templateId || document.id || `lft-${Date.now()}`,
+    name: pkg.manifest?.name || document.name || "Untitled Label",
+    createdAt: pkg.manifest?.createdAt || document.created || (/* @__PURE__ */ new Date()).toISOString(),
+    modifiedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    author: pkg.manifest?.author || document.author || "Design Engineer",
+    checksum: pkg.manifest?.checksum || "checksum-pending",
+    requiredFonts: Array.isArray(pkg.manifest?.requiredFonts) ? pkg.manifest.requiredFonts : ["Inter"],
+    requiredSymbologies: Array.isArray(pkg.manifest?.requiredSymbologies) ? pkg.manifest.requiredSymbologies : [],
+    targetPrinters: pkg.manifest?.targetPrinters || ["Zebra ZPL", "TSC TSPL"],
+    security: {
+      encrypted: Boolean(pkg.manifest?.security?.encrypted),
+      sanitized: true,
+      allowExternalDataBinding: Boolean(pkg.manifest?.security?.allowExternalDataBinding ?? true)
+    }
+  };
+  return {
+    format: "lforge",
+    schemaVersion: 2,
+    manifest,
+    document,
+    assets: pkg.assets || {},
+    previews: pkg.previews || {}
+  };
+}
+
 // electron/services/filesystem/projectStorage.ts
 var ProjectStorageService = class {
+  /**
+   * Loads and validates a .lforge project file with SHA-256 checksum verification
+   */
   async loadProject(filePath) {
     logger.info("ProjectStorageService", `Loading project from ${filePath}`);
     const content = await fileManager.readFile(filePath);
@@ -415,56 +678,96 @@ var ProjectStorageService = class {
     } catch (err) {
       throw new ProjectError(`Project file is not valid JSON: ${err.message}`, { path: filePath });
     }
-    if (!parsed.manifest || parsed.manifest.format !== "LabelForge Package") {
-      if (parsed.dimensions && Array.isArray(parsed.objects)) {
-        logger.warn("ProjectStorageService", "Converting legacy raw label document to .lforge package");
-        const legacyDoc = parsed;
-        const pkg = {
-          manifest: {
-            format: "LabelForge Package",
-            extension: ".lforge",
-            schemaVersion: "2.0.0",
-            templateId: legacyDoc.id || `legacy-${Date.now()}`,
-            name: legacyDoc.name || import_path4.default.basename(filePath, ".lforge"),
-            checksum: "legacy-import",
-            createdAt: legacyDoc.created || (/* @__PURE__ */ new Date()).toISOString(),
-            modifiedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            author: legacyDoc.author || "User",
-            producerVersion: "LabelForge Desktop 3.0.0"
-          },
-          document: legacyDoc
-        };
-        recentProjects.addRecent(filePath, pkg.manifest.name);
-        return pkg;
+    let pkg;
+    try {
+      pkg = migrateLForgePackage(parsed);
+    } catch (err) {
+      throw new ProjectError(`Project schema migration failed: ${err.message}`, { path: filePath });
+    }
+    if (parsed.manifest && parsed.manifest.checksum && parsed.manifest.checksum !== "checksum-pending" && parsed.manifest.checksum !== "legacy-import") {
+      const computedChecksum = computeDocumentChecksum(pkg.document);
+      if (parsed.manifest.checksum !== computedChecksum) {
+        logger.error("ProjectStorageService", `Checksum mismatch for ${filePath}. Claimed: ${parsed.manifest.checksum}, Computed: ${computedChecksum}`);
+        throw new ProjectError("CHECKSUM_MISMATCH: The project file checksum does not match its payload. It may have been modified or corrupted.", {
+          path: filePath,
+          claimed: parsed.manifest.checksum,
+          computed: computedChecksum
+        });
       }
-      throw new ProjectError("File is missing valid LabelForge manifest or document structure", { path: filePath });
     }
-    if (!parsed.document || !parsed.document.dimensions || !Array.isArray(parsed.document.objects)) {
-      throw new ProjectError("LabelForge document definition is incomplete or corrupted", { path: filePath });
-    }
-    recentProjects.addRecent(filePath, parsed.manifest.name || parsed.document.name);
-    return parsed;
+    pkg.manifest.checksum = computeDocumentChecksum(pkg.document);
+    recentProjects.addRecent(filePath, pkg.manifest.name || pkg.document.name || import_path4.default.basename(filePath));
+    return pkg;
   }
+  /**
+   * Performs Atomic Save (.tmp -> .lforge, backup .bak) with SHA-256 checksum calculation
+   */
   async saveProject(filePath, pkg) {
-    logger.info("ProjectStorageService", `Saving project to ${filePath}`);
+    logger.info("ProjectStorageService", `Executing atomic project save to ${filePath}`);
     if (!pkg || !pkg.document) {
       throw new ProjectError("Cannot save empty project payload", { path: filePath });
     }
-    const updatedPkg = {
-      ...pkg,
+    const checksum = computeDocumentChecksum(pkg.document);
+    const finalizedPkg = {
+      format: "lforge",
+      schemaVersion: 2,
       manifest: {
-        ...pkg.manifest,
         format: "LabelForge Package",
         extension: ".lforge",
-        schemaVersion: "2.0.0",
+        schemaVersion: 2,
+        producerVersion: "LabelForge Studio 3.0.0 Enterprise",
+        templateId: pkg.manifest?.templateId || pkg.document.id || `lft-${Date.now()}`,
+        name: pkg.manifest?.name || pkg.document.name || import_path4.default.basename(filePath, ".lforge"),
+        createdAt: pkg.manifest?.createdAt || pkg.document.created || (/* @__PURE__ */ new Date()).toISOString(),
         modifiedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        producerVersion: "LabelForge Desktop 3.0.0"
-      }
+        author: pkg.manifest?.author || pkg.document.author || "LabelForge Engineer",
+        checksum,
+        requiredFonts: pkg.manifest?.requiredFonts || ["Inter"],
+        requiredSymbologies: pkg.manifest?.requiredSymbologies || [],
+        targetPrinters: pkg.manifest?.targetPrinters || ["Zebra ZPL", "TSC TSPL"],
+        security: pkg.manifest?.security || {
+          encrypted: false,
+          sanitized: true,
+          allowExternalDataBinding: true
+        }
+      },
+      document: {
+        ...pkg.document,
+        modified: (/* @__PURE__ */ new Date()).toISOString()
+      },
+      assets: pkg.assets || {},
+      previews: pkg.previews || {}
     };
-    const jsonString = JSON.stringify(updatedPkg, null, 2);
-    await fileManager.writeFile(filePath, jsonString);
-    recentProjects.addRecent(filePath, updatedPkg.manifest.name || updatedPkg.document.name);
-    logger.info("ProjectStorageService", `Project successfully saved to ${filePath}`);
+    const jsonString = JSON.stringify(finalizedPkg, null, 2);
+    const tempPath = `${filePath}.tmp`;
+    const backupPath = `${filePath}.bak`;
+    try {
+      await fileManager.writeFile(tempPath, jsonString);
+      const tempContent = await fileManager.readFile(tempPath);
+      const tempParsed = JSON.parse(tempContent);
+      if (!tempParsed.manifest || tempParsed.manifest.checksum !== checksum) {
+        throw new Error("Integrity verification failed on temporary file write");
+      }
+      if (import_fs6.default.existsSync(filePath)) {
+        try {
+          import_fs6.default.copyFileSync(filePath, backupPath);
+        } catch (backupErr) {
+          logger.warn("ProjectStorageService", `Could not create backup file: ${backupErr.message}`);
+        }
+      }
+      import_fs6.default.renameSync(tempPath, filePath);
+      recentProjects.addRecent(filePath, finalizedPkg.manifest.name);
+      logger.info("ProjectStorageService", `Project saved & verified successfully at ${filePath}`);
+    } catch (err) {
+      if (import_fs6.default.existsSync(tempPath)) {
+        try {
+          import_fs6.default.unlinkSync(tempPath);
+        } catch {
+        }
+      }
+      logger.error("ProjectStorageService", `Atomic save failed: ${err.message}`);
+      throw new ProjectError(`Failed to save project file: ${err.message}`, { path: filePath });
+    }
   }
 };
 var projectStorage = new ProjectStorageService();
@@ -605,6 +908,197 @@ var import_electron6 = require("electron");
 
 // electron/services/printer/windowsPrinter.ts
 var import_electron5 = require("electron");
+
+// electron/services/printer/windowsRawSpooler.ts
+var import_fs7 = __toESM(require("fs"), 1);
+var import_path6 = __toESM(require("path"), 1);
+var import_child_process = require("child_process");
+var import_util = require("util");
+var execFileAsync = (0, import_util.promisify)(import_child_process.execFile);
+var WindowsRawSpoolerService = class {
+  spoolDir;
+  constructor() {
+    this.spoolDir = import_path6.default.join(paths.getAppDataDir(), "spool");
+    if (!import_fs7.default.existsSync(this.spoolDir)) {
+      try {
+        import_fs7.default.mkdirSync(this.spoolDir, { recursive: true });
+      } catch (err) {
+        logger.warn("WindowsRawSpoolerService", `Could not create spool directory: ${err.message}`);
+      }
+    }
+  }
+  /**
+   * Dispatches raw command payload directly to Windows Print Spooler with RAW datatype
+   */
+  async printRaw(printerName, payload, jobName = "LabelForge RAW Thermal Job") {
+    if (!printerName || typeof printerName !== "string") {
+      return {
+        success: false,
+        printerName: printerName || "Unknown",
+        bytesWritten: 0,
+        errorCode: "ERR_INVALID_PRINTER",
+        errorMessage: "Printer name must be a valid non-empty string"
+      };
+    }
+    const bufferPayload = Buffer.isBuffer(payload) ? payload : Buffer.from(payload || "", "utf-8");
+    if (bufferPayload.length === 0) {
+      return {
+        success: false,
+        printerName,
+        bytesWritten: 0,
+        errorCode: "ERR_EMPTY_PAYLOAD",
+        errorMessage: "RAW printer payload is empty"
+      };
+    }
+    const jobId = `raw-${Date.now()}-${Math.floor(Math.random() * 1e3)}`;
+    const tempPrnFile = import_path6.default.join(this.spoolDir, `${jobId}.prn`);
+    logger.info("WindowsRawSpoolerService", `Dispatching ${bufferPayload.length} RAW bytes to printer "${printerName}" [Job ID: ${jobId}]`);
+    try {
+      import_fs7.default.writeFileSync(tempPrnFile, bufferPayload);
+    } catch (err) {
+      logger.error("WindowsRawSpoolerService", `Failed to write spool file: ${err.message}`);
+      return {
+        success: false,
+        printerName,
+        bytesWritten: 0,
+        errorCode: "ERR_SPOOL_FILE_WRITE",
+        errorMessage: `Failed to write raw spool file: ${err.message}`
+      };
+    }
+    if (process.platform === "win32") {
+      try {
+        const psScript = `
+$ErrorActionPreference = 'Stop'
+$printer = ${JSON.stringify(printerName)}
+$filePath = ${JSON.stringify(tempPrnFile)}
+$docTitle = ${JSON.stringify(jobName)}
+
+$code = @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public class RawPrinterHelper {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+
+    public static bool SendFileToPrinter(string szPrinterName, string fileName, string docName) {
+        byte[] bytes = File.ReadAllBytes(fileName);
+        IntPtr hPrinter = IntPtr.Zero;
+        DOCINFOA di = new DOCINFOA();
+        di.pDocName = docName;
+        di.pDataType = "RAW";
+        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero)) {
+            if (StartDocPrinter(hPrinter, 1, di)) {
+                if (StartPagePrinter(hPrinter)) {
+                    IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
+                    Marshal.Copy(bytes, 0, pUnmanagedBytes, bytes.Length);
+                    int dwWritten = 0;
+                    bool success = WritePrinter(hPrinter, pUnmanagedBytes, bytes.Length, out dwWritten);
+                    Marshal.FreeCoTaskMem(pUnmanagedBytes);
+                    EndPagePrinter(hPrinter);
+                    EndDocPrinter(hPrinter);
+                    ClosePrinter(hPrinter);
+                    return success;
+                }
+                EndDocPrinter(hPrinter);
+            }
+            ClosePrinter(hPrinter);
+        }
+        return false;
+    }
+}
+"@
+
+Add-Type -TypeDefinition $code
+$res = [RawPrinterHelper]::SendFileToPrinter($printer, $filePath, $docTitle)
+if ($res) {
+    Write-Output "SUCCESS"
+} else {
+    Write-Error "RAW_PRINT_FAILED"
+}
+`;
+        const psFile = import_path6.default.join(this.spoolDir, `${jobId}.ps1`);
+        import_fs7.default.writeFileSync(psFile, psScript, "utf-8");
+        try {
+          const { stdout } = await execFileAsync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", psFile], {
+            timeout: 1e4
+          });
+          this.safeUnlink(psFile);
+          this.safeUnlink(tempPrnFile);
+          if (stdout.includes("SUCCESS")) {
+            logger.info("WindowsRawSpoolerService", `Raw spool job ${jobId} successfully sent to ${printerName}`);
+            return {
+              success: true,
+              jobId,
+              printerName,
+              bytesWritten: bufferPayload.length
+            };
+          } else {
+            throw new Error(`Spooler rejected job`);
+          }
+        } catch (execErr) {
+          this.safeUnlink(tempPrnFile);
+          logger.error("WindowsRawSpoolerService", `PowerShell raw print failed: ${execErr.message}`);
+          return {
+            success: false,
+            printerName,
+            bytesWritten: 0,
+            errorCode: "ERR_RAW_SPOOLER_FAILED",
+            errorMessage: `Windows RAW spooler error: ${execErr.stderr || execErr.message}`
+          };
+        }
+      } catch (err) {
+        this.safeUnlink(tempPrnFile);
+        return {
+          success: false,
+          printerName,
+          bytesWritten: 0,
+          errorCode: "ERR_WIN32_SPOOLER",
+          errorMessage: err.message
+        };
+      }
+    } else {
+      logger.info("WindowsRawSpoolerService", `[Non-Windows OS] Simulated sending ${bufferPayload.length} bytes to ${printerName}`);
+      this.safeUnlink(tempPrnFile);
+      return {
+        success: true,
+        jobId,
+        printerName,
+        bytesWritten: bufferPayload.length
+      };
+    }
+  }
+  safeUnlink(filePath) {
+    if (import_fs7.default.existsSync(filePath)) {
+      try {
+        import_fs7.default.unlinkSync(filePath);
+      } catch {
+      }
+    }
+  }
+};
+var windowsRawSpooler = new WindowsRawSpoolerService();
+
+// electron/services/printer/windowsPrinter.ts
 var WindowsPrinterAdapter = class {
   async discover() {
     logger.info("WindowsPrinterAdapter", "Querying Windows Spooler printers...");
@@ -625,7 +1119,7 @@ var WindowsPrinterAdapter = class {
           isDefault: Boolean(raw.isDefault),
           status: typeof raw.status === "number" ? raw.status : 0,
           description: p.description || "Windows OS Installed Printer",
-          protocolsSupported: ["raster", "pdf"]
+          protocolsSupported: ["raw", "raster", "pdf"]
         };
       });
     } catch (err) {
@@ -634,7 +1128,27 @@ var WindowsPrinterAdapter = class {
     }
   }
   async print(request) {
-    logger.info("WindowsPrinterAdapter", `Dispatching spooler job to ${request.printerName}`, { copies: request.copies });
+    logger.info("WindowsPrinterAdapter", `Processing Windows print request for "${request.printerName}" (${request.printerType})`);
+    if (request.rawPayload && typeof request.rawPayload === "string" && request.rawPayload.trim().length > 0) {
+      logger.info("WindowsPrinterAdapter", `Dispatching RAW thermal payload to Windows spooler queue for ${request.printerName}...`);
+      const rawRes = await windowsRawSpooler.printRaw(request.printerName, request.rawPayload, request.jobName || "LabelForge RAW Job");
+      if (rawRes.success) {
+        return {
+          success: true,
+          jobId: rawRes.jobId,
+          bytesWritten: rawRes.bytesWritten
+        };
+      } else {
+        return {
+          success: false,
+          error: {
+            code: rawRes.errorCode || "ERR_RAW_PRINT_FAILED",
+            message: rawRes.errorMessage || "RAW print spooling failed"
+          }
+        };
+      }
+    }
+    logger.info("WindowsPrinterAdapter", `Dispatching GDI/raster job to Chromium spooler for ${request.printerName}`);
     try {
       const win = import_electron5.BrowserWindow.getFocusedWindow() || import_electron5.BrowserWindow.getAllWindows()[0];
       if (!win) {
@@ -657,16 +1171,16 @@ var WindowsPrinterAdapter = class {
           },
           (success, failureReason) => {
             if (!success) {
-              logger.error("WindowsPrinterAdapter", `Print failed: ${failureReason}`);
+              logger.error("WindowsPrinterAdapter", `GDI Print failed: ${failureReason}`);
               resolve({
                 success: false,
                 error: {
                   code: "ERR_SPOOLER_FAILURE",
-                  message: failureReason || "Windows print spooler rejected job"
+                  message: failureReason || "Windows print spooler rejected GDI job"
                 }
               });
             } else {
-              logger.info("WindowsPrinterAdapter", "Spooler job dispatched successfully");
+              logger.info("WindowsPrinterAdapter", "GDI Spooler job dispatched successfully");
               resolve({
                 success: true,
                 jobId: `spool-${Date.now()}`
@@ -676,7 +1190,7 @@ var WindowsPrinterAdapter = class {
         );
       });
     } catch (err) {
-      logger.error("WindowsPrinterAdapter", `Exception during printing: ${err.message}`);
+      logger.error("WindowsPrinterAdapter", `Exception during GDI printing: ${err.message}`);
       return {
         success: false,
         error: {
@@ -688,11 +1202,13 @@ var WindowsPrinterAdapter = class {
   }
   async testPrint(printerName) {
     logger.info("WindowsPrinterAdapter", `Executing test print on ${printerName}`);
+    const testZpl = "^XA\n^LH0,0\n^FO50,50^A0N,40,30^FDLabelForge Enterprise Hardware Test^FS\n^FO50,110^BCN,70,Y,N,N\n^FDTEST-RAW-12345^FS\n^XZ\n";
     return this.print({
       printerName,
       printerType: "windows",
       copies: 1,
-      jobName: "LabelForge Hardware Test Page"
+      jobName: "LabelForge Hardware Test Page",
+      rawPayload: testZpl
     });
   }
 };
@@ -700,6 +1216,31 @@ var windowsPrinter = new WindowsPrinterAdapter();
 
 // electron/services/printer/networkPrinter.ts
 var import_net = __toESM(require("net"), 1);
+var IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+var HOSTNAME_REGEX = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/;
+function validateNetworkDestination(host, port) {
+  if (!host || typeof host !== "string" || host.trim() === "") {
+    return { valid: false, error: "Network printer host IP or hostname is required" };
+  }
+  const cleanHost = host.trim();
+  if (/[;&|`<>\$\\]/.test(cleanHost) || cleanHost.includes("..")) {
+    return { valid: false, error: "Invalid characters detected in printer hostname or IP address" };
+  }
+  if (/^[\d\.]+$/.test(cleanHost)) {
+    if (!IPV4_REGEX.test(cleanHost)) {
+      return { valid: false, error: `Invalid IP address or hostname format: "${cleanHost}"` };
+    }
+  } else {
+    if (!HOSTNAME_REGEX.test(cleanHost)) {
+      return { valid: false, error: `Invalid IP address or hostname format: "${cleanHost}"` };
+    }
+  }
+  const numericPort = port !== void 0 ? Number(port) : 9100;
+  if (isNaN(numericPort) || !Number.isInteger(numericPort) || numericPort < 1 || numericPort > 65535) {
+    return { valid: false, error: `Invalid TCP port number ${port}. Port must be between 1 and 65535.` };
+  }
+  return { valid: true };
+}
 var NetworkPrinterAdapter = class {
   async discover() {
     return [];
@@ -708,36 +1249,47 @@ var NetworkPrinterAdapter = class {
     const host = request.networkHost;
     const port = request.networkPort || 9100;
     const payload = request.rawPayload;
-    if (!host) {
+    const destVal = validateNetworkDestination(host, port);
+    if (!destVal.valid) {
       return {
         success: false,
         error: {
-          code: "ERR_NO_HOST",
-          message: "Network printer host IP or hostname was not specified"
+          code: "ERR_INVALID_NETWORK_DEST",
+          message: destVal.error || "Invalid network destination"
         }
       };
     }
-    if (!payload) {
+    if (!payload || typeof payload === "string" && payload.trim() === "") {
       return {
         success: false,
         error: {
           code: "ERR_NO_PAYLOAD",
-          message: "Raw printer payload (ZPL/TSPL) is empty"
+          message: "Raw printer payload (ZPL/TSPL/EPL) is empty"
         }
       };
     }
-    logger.info("NetworkPrinterAdapter", `Connecting to raw thermal socket ${host}:${port}...`);
+    const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, "utf-8");
+    if (buffer.length > 20 * 1024 * 1024) {
+      return {
+        success: false,
+        error: {
+          code: "ERR_PAYLOAD_TOO_LARGE",
+          message: `Printer payload size (${(buffer.length / 1024 / 1024).toFixed(1)}MB) exceeds maximum 20MB socket limit.`
+        }
+      };
+    }
+    logger.info("NetworkPrinterAdapter", `Connecting to RAW socket at ${host}:${port} (${buffer.length} bytes)...`);
     return new Promise((resolve) => {
       const socket = new import_net.default.Socket();
       let bytesWritten = 0;
       let hasFinished = false;
-      socket.setTimeout(8e3);
+      const timeoutMs = request.timeoutMs || 8e3;
+      socket.setTimeout(timeoutMs);
       socket.connect(port, host, () => {
         logger.info("NetworkPrinterAdapter", `Connected to ${host}:${port}. Streaming payload...`);
-        const buffer = Buffer.from(payload, "utf-8");
-        bytesWritten = buffer.length;
         socket.write(buffer, () => {
-          logger.info("NetworkPrinterAdapter", `Successfully sent ${bytesWritten} bytes to ${host}:${port}`);
+          bytesWritten = buffer.length;
+          logger.info("NetworkPrinterAdapter", `Transmitted ${bytesWritten} bytes to ${host}:${port}`);
           socket.end();
         });
       });
@@ -752,7 +1304,7 @@ var NetworkPrinterAdapter = class {
         }
       });
       socket.on("timeout", () => {
-        logger.error("NetworkPrinterAdapter", `Socket timed out connecting to ${host}:${port}`);
+        logger.error("NetworkPrinterAdapter", `Connection timed out connecting to ${host}:${port}`);
         socket.destroy();
         if (!hasFinished) {
           hasFinished = true;
@@ -760,13 +1312,13 @@ var NetworkPrinterAdapter = class {
             success: false,
             error: {
               code: "ERR_SOCKET_TIMEOUT",
-              message: `Connection timed out to network printer at ${host}:${port}`
+              message: `Connection timed out to network printer at ${host}:${port} (Timeout: ${timeoutMs}ms)`
             }
           });
         }
       });
       socket.on("error", (err) => {
-        logger.error("NetworkPrinterAdapter", `Socket error communicating with ${host}:${port}: ${err.message}`);
+        logger.error("NetworkPrinterAdapter", `Socket error for ${host}:${port}: ${err.message}`);
         socket.destroy();
         if (!hasFinished) {
           hasFinished = true;
@@ -774,7 +1326,7 @@ var NetworkPrinterAdapter = class {
             success: false,
             error: {
               code: "ERR_SOCKET_ERROR",
-              message: `Network communication error: ${err.message}`
+              message: `Network communication error to ${host}:${port}: ${err.message}`
             }
           });
         }
@@ -782,7 +1334,13 @@ var NetworkPrinterAdapter = class {
     });
   }
   async testPrint(host, protocol = "zpl") {
-    const rawPayload = protocol === "tspl" ? 'SIZE 4,2\nGAP 0.12,0\nCLS\nTEXT 50,50,"3",0,1,1,"LabelForge TSPL Network Test"\nPRINT 1\n' : "^XA\n^FO50,50^ADN,36,20^FDLabelForge ZPL Network Test^FS\n^XZ\n";
+    const proto = (protocol || "zpl").toLowerCase();
+    let rawPayload = "^XA\n^FO50,50^ADN,36,20^FDLabelForge ZPL Network Test^FS\n^XZ\n";
+    if (proto === "tspl") {
+      rawPayload = 'SIZE 4,2\nGAP 0.12,0\nCLS\nTEXT 50,50,"3",0,1,1,"LabelForge TSPL Network Test"\nPRINT 1\n';
+    } else if (proto === "epl") {
+      rawPayload = '\nN\nA50,50,0,3,1,1,N,"LabelForge EPL Network Test"\nP1\n';
+    }
     return this.print({
       printerName: `Network Thermal (${host})`,
       printerType: "network",
@@ -844,26 +1402,170 @@ var TsplPrinterAdapter = class {
 };
 var tsplPrinter = new TsplPrinterAdapter();
 
-// electron/services/printer/bartenderPrinter.ts
-var BarTenderPrinterAdapter = class {
+// electron/services/printer/eplPrinter.ts
+var EplPrinterAdapter = class {
   async discover() {
-    return [
-      {
-        id: "bartender-srv-01",
-        name: "BarTender Print Server",
-        displayName: "BarTender Enterprise Automation Server",
-        type: "bartender",
-        isDefault: false,
-        status: 1,
-        description: "BarTender REST Web Print Service (Port 5159)",
-        protocolsSupported: ["pdf", "raster"]
-      }
-    ];
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter((p) => /epl|eltron|2844|zebra/i.test(p.name));
   }
   async print(request) {
-    const host = request.networkHost || "localhost";
-    const port = request.networkPort || 5159;
-    const url = `http://${host}:${port}/BarTender/API/v1/Print`;
+    logger.info("EplPrinterAdapter", `Dispatching EPL job to ${request.printerName}`);
+    if (request.networkHost) {
+      return await networkPrinter.print(request);
+    }
+    return await windowsPrinter.print(request);
+  }
+  async testPrint(printerName) {
+    const testEpl = 'N\nq400\nQ200,24\nA50,50,0,4,1,1,N,"LABELFORGE EPL TEST OK"\nP1,1\n';
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
+    return await this.print({
+      printerName,
+      printerType: isIpHost ? "network" : "epl",
+      networkHost: isIpHost ? printerName : void 0,
+      rawPayload: testEpl,
+      copies: 1
+    });
+  }
+};
+var eplPrinter = new EplPrinterAdapter();
+
+// electron/services/printer/cpclPrinter.ts
+var CpclPrinterAdapter = class {
+  async discover() {
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter((p) => /cpcl|mobile|qln|zq/i.test(p.name));
+  }
+  async print(request) {
+    logger.info("CpclPrinterAdapter", `Dispatching CPCL job to ${request.printerName}`);
+    if (request.networkHost) {
+      return await networkPrinter.print(request);
+    }
+    return await windowsPrinter.print(request);
+  }
+  async testPrint(printerName) {
+    const testCpcl = "! 0 200 200 210 1\nTEXT 7 0 20 20 LABELFORGE CPCL TEST OK\nFORM\nPRINT\n";
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
+    return await this.print({
+      printerName,
+      printerType: isIpHost ? "network" : "cpcl",
+      networkHost: isIpHost ? printerName : void 0,
+      rawPayload: testCpcl,
+      copies: 1
+    });
+  }
+};
+var cpclPrinter = new CpclPrinterAdapter();
+
+// electron/services/printer/sbplPrinter.ts
+var SbplPrinterAdapter = class {
+  async discover() {
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter((p) => /sato|sbpl|cl4nx|pw4/i.test(p.name));
+  }
+  async print(request) {
+    logger.info("SbplPrinterAdapter", `Dispatching SBPL job to ${request.printerName}`);
+    if (request.networkHost) {
+      return await networkPrinter.print(request);
+    }
+    return await windowsPrinter.print(request);
+  }
+  async testPrint(printerName) {
+    const ESC = "\x1B";
+    const testSbpl = `${ESC}A${ESC}A1${ESC}H0050${ESC}V0050${ESC}L0202${ESC}MLABELFORGE SATO SBPL TEST OK${ESC}Q1${ESC}Z`;
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
+    return await this.print({
+      printerName,
+      printerType: isIpHost ? "network" : "sbpl",
+      networkHost: isIpHost ? printerName : void 0,
+      rawPayload: testSbpl,
+      copies: 1
+    });
+  }
+};
+var sbplPrinter = new SbplPrinterAdapter();
+
+// electron/services/printer/dplPrinter.ts
+var DplPrinterAdapter = class {
+  async discover() {
+    const winPrinters = await windowsPrinter.discover();
+    return winPrinters.filter((p) => /datamax|dpl|honeywell|oneil/i.test(p.name));
+  }
+  async print(request) {
+    logger.info("DplPrinterAdapter", `Dispatching DPL job to ${request.printerName}`);
+    if (request.networkHost) {
+      return await networkPrinter.print(request);
+    }
+    return await windowsPrinter.print(request);
+  }
+  async testPrint(printerName) {
+    const SOH = "";
+    const STX = "";
+    const testDpl = `${SOH}D${STX}LD11121100000500050LABELFORGE DPL TEST OK\r
+Q0001\r
+E\r
+`;
+    const isIpHost = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(printerName);
+    return await this.print({
+      printerName,
+      printerType: isIpHost ? "network" : "dpl",
+      networkHost: isIpHost ? printerName : void 0,
+      rawPayload: testDpl,
+      copies: 1
+    });
+  }
+};
+var dplPrinter = new DplPrinterAdapter();
+
+// electron/services/printer/bartenderPrinter.ts
+var activeBarTenderConfig = {
+  enabled: true,
+  baseUrl: "http://127.0.0.1:5159",
+  timeoutMs: 8e3
+};
+var BarTenderPrinterAdapter = class {
+  /**
+   * Queries real BarTender REST service endpoint to verify availability
+   * Does NOT report fake static printers if server is unreachable
+   */
+  async discover() {
+    if (!activeBarTenderConfig.enabled) {
+      return [];
+    }
+    const healthUrl = `${activeBarTenderConfig.baseUrl.replace(/\/+$/, "")}/BarTender/API/v1/Health`;
+    try {
+      const headers = { "Accept": "application/json" };
+      if (activeBarTenderConfig.authToken) {
+        headers["Authorization"] = `Bearer ${activeBarTenderConfig.authToken}`;
+      }
+      const res = await fetch(healthUrl, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(3e3)
+      });
+      if (res.ok) {
+        logger.info("BarTenderPrinterAdapter", `Verified active BarTender REST server at ${healthUrl}`);
+        return [
+          {
+            id: "bartender-rest-server",
+            name: "BarTender Enterprise Automation Server",
+            displayName: "BarTender REST Print Service (Online)",
+            type: "bartender",
+            isDefault: false,
+            status: 1,
+            // Ready
+            description: `Verified BarTender REST Server at ${activeBarTenderConfig.baseUrl}`,
+            protocolsSupported: ["pdf", "raster"]
+          }
+        ];
+      }
+    } catch (err) {
+      logger.info("BarTenderPrinterAdapter", `BarTender server offline/unreachable at ${healthUrl}: ${err.message}`);
+    }
+    return [];
+  }
+  async print(request) {
+    const baseUrl = activeBarTenderConfig.baseUrl.replace(/\/+$/, "");
+    const url = `${baseUrl}/BarTender/API/v1/Print`;
     logger.info("BarTenderPrinterAdapter", `Dispatching BarTender print job to ${url}`);
     const payload = {
       template: request.bartenderTemplate || "StandardLabel.btw",
@@ -872,23 +1574,27 @@ var BarTenderPrinterAdapter = class {
       values: request.bartenderPayload || {}
     };
     try {
+      const headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      };
+      if (activeBarTenderConfig.authToken) {
+        headers["Authorization"] = `Bearer ${activeBarTenderConfig.authToken}`;
+      }
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
+        headers,
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(1e4)
+        signal: AbortSignal.timeout(activeBarTenderConfig.timeoutMs || 1e4)
       });
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error("BarTenderPrinterAdapter", `BarTender API returned error: ${response.status} ${errorText}`);
+        logger.error("BarTenderPrinterAdapter", `BarTender API error: ${response.status} ${errorText}`);
         return {
           success: false,
           error: {
             code: `ERR_BARTENDER_${response.status}`,
-            message: `BarTender Print Server error: ${errorText}`
+            message: `BarTender Print Server returned HTTP ${response.status}: ${errorText}`
           }
         };
       }
@@ -899,12 +1605,12 @@ var BarTenderPrinterAdapter = class {
         jobId: result.jobId || `bt-${Date.now()}`
       };
     } catch (err) {
-      logger.error("BarTenderPrinterAdapter", `Failed to connect to BarTender server: ${err.message}`);
+      logger.error("BarTenderPrinterAdapter", `Failed to connect to BarTender server at ${url}: ${err.message}`);
       return {
         success: false,
         error: {
           code: "ERR_BARTENDER_CONNECTION",
-          message: `Unable to connect to BarTender server at ${url}: ${err.message}`
+          message: `Unable to reach BarTender server at ${url}: ${err.message}`
         }
       };
     }
@@ -919,6 +1625,49 @@ var BarTenderPrinterAdapter = class {
   }
 };
 var bartenderPrinter = new BarTenderPrinterAdapter();
+
+// electron/services/system/auditService.ts
+var import_fs8 = __toESM(require("fs"), 1);
+var import_path7 = __toESM(require("path"), 1);
+var AuditService = class {
+  auditFilePath = "";
+  constructor() {
+    this.auditFilePath = import_path7.default.join(paths.getAppDataDir(), "audit.jsonl");
+  }
+  recordEvent(record) {
+    const fullRecord = {
+      id: `audit-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      ...record
+    };
+    logger.info("AuditService", `[AUDIT] ${fullRecord.action} (${fullRecord.result}) by ${fullRecord.user}`);
+    try {
+      const line = JSON.stringify(fullRecord) + "\n";
+      import_fs8.default.appendFileSync(this.auditFilePath, line, "utf-8");
+    } catch (err) {
+      logger.error("AuditService", `Failed to write audit event to disk: ${err.message}`);
+    }
+    return fullRecord;
+  }
+  getRecentRecords(limit = 100) {
+    if (!import_fs8.default.existsSync(this.auditFilePath)) return [];
+    try {
+      const content = import_fs8.default.readFileSync(this.auditFilePath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      const records = [];
+      for (let i = lines.length - 1; i >= 0 && records.length < limit; i--) {
+        try {
+          records.push(JSON.parse(lines[i]));
+        } catch {
+        }
+      }
+      return records;
+    } catch {
+      return [];
+    }
+  }
+};
+var auditService = new AuditService();
 
 // electron/ipc/printer/printerHandlers.ts
 function registerPrinterHandlers() {
@@ -938,24 +1687,86 @@ function registerPrinterHandlers() {
     return all.find((p) => p.isDefault) || all[0] || null;
   });
   import_electron6.ipcMain.handle("printer:print", async (_event, request) => {
-    logger.info("PrinterHandlers", `Received print request for ${request.printerName} (${request.printerType})`);
+    logger.info("PrinterHandlers", `Received print request for printer "${request.printerName}" (type: ${request.printerType})`);
     try {
       validatePrintRequest(request);
-      switch (request.printerType) {
+      if (request.networkHost) {
+        const netVal = validateNetworkDestination(request.networkHost, request.networkPort);
+        if (!netVal.valid) {
+          auditService.recordEvent({
+            action: "PRINT_JOB_REQUESTED",
+            user: "Operator",
+            role: "OPERATOR",
+            resource: request.printerName || "Network Printer",
+            result: "FAILURE",
+            errorMessage: netVal.error
+          });
+          return {
+            success: false,
+            error: {
+              code: "ERR_INVALID_NETWORK_DEST",
+              message: netVal.error || "Invalid network printer destination"
+            }
+          };
+        }
+      }
+      let result;
+      const type = (request.printerType || "windows").toLowerCase();
+      switch (type) {
         case "network":
-          return await networkPrinter.print(request);
+          result = await networkPrinter.print(request);
+          break;
         case "zpl":
-          return await zplPrinter.print(request);
+          result = await zplPrinter.print(request);
+          break;
         case "tspl":
-          return await tsplPrinter.print(request);
+          result = await tsplPrinter.print(request);
+          break;
+        case "epl":
+          result = await eplPrinter.print(request);
+          break;
+        case "cpcl":
+          result = await cpclPrinter.print(request);
+          break;
+        case "sbpl":
+          result = await sbplPrinter.print(request);
+          break;
+        case "dpl":
+          result = await dplPrinter.print(request);
+          break;
         case "bartender":
-          return await bartenderPrinter.print(request);
+          result = await bartenderPrinter.print(request);
+          break;
         case "windows":
         default:
-          return await windowsPrinter.print(request);
+          result = await windowsPrinter.print(request);
+          break;
       }
+      auditService.recordEvent({
+        action: "PRINT_JOB_REQUESTED",
+        user: "Operator",
+        role: "OPERATOR",
+        resource: request.printerName,
+        result: result.success ? "SUCCESS" : "FAILURE",
+        details: {
+          printerType: request.printerType,
+          copies: request.copies || 1,
+          jobId: result.jobId,
+          bytesWritten: result.bytesWritten
+        },
+        errorMessage: result.error?.message
+      });
+      return result;
     } catch (err) {
-      logger.error("PrinterHandlers", `Print job failed: ${err.message}`);
+      logger.error("PrinterHandlers", `Print job dispatch error: ${err.message}`);
+      auditService.recordEvent({
+        action: "PRINT_JOB_REQUESTED",
+        user: "Operator",
+        role: "OPERATOR",
+        resource: request.printerName || "Unknown",
+        result: "FAILURE",
+        errorMessage: err.message
+      });
       return {
         success: false,
         error: {
@@ -968,17 +1779,45 @@ function registerPrinterHandlers() {
   import_electron6.ipcMain.handle("printer:test", async (_event, printerName, protocol = "zpl") => {
     logger.info("PrinterHandlers", `Test print triggered for ${printerName} with protocol ${protocol}`);
     try {
-      if (protocol === "tspl") {
-        return await tsplPrinter.testPrint(printerName);
-      } else if (protocol === "bartender") {
-        return await bartenderPrinter.testPrint(printerName);
-      } else if (protocol === "spooler") {
-        return await windowsPrinter.testPrint(printerName);
+      const proto = protocol.toLowerCase();
+      let res;
+      if (proto === "tspl") {
+        res = await tsplPrinter.testPrint(printerName);
+      } else if (proto === "epl") {
+        res = await eplPrinter.testPrint(printerName);
+      } else if (proto === "cpcl") {
+        res = await cpclPrinter.testPrint(printerName);
+      } else if (proto === "sbpl") {
+        res = await sbplPrinter.testPrint(printerName);
+      } else if (proto === "dpl") {
+        res = await dplPrinter.testPrint(printerName);
+      } else if (proto === "bartender") {
+        res = await bartenderPrinter.testPrint(printerName);
+      } else if (proto === "spooler") {
+        res = await windowsPrinter.testPrint(printerName);
       } else {
-        return await zplPrinter.testPrint(printerName);
+        res = await zplPrinter.testPrint(printerName);
       }
+      auditService.recordEvent({
+        action: "TEST_PRINT_DISPATCHED",
+        user: "Operator",
+        role: "OPERATOR",
+        resource: printerName,
+        result: res.success ? "SUCCESS" : "FAILURE",
+        details: { protocol },
+        errorMessage: res.error?.message
+      });
+      return res;
     } catch (err) {
       logger.error("PrinterHandlers", `Test print failed: ${err.message}`);
+      auditService.recordEvent({
+        action: "TEST_PRINT_DISPATCHED",
+        user: "Operator",
+        role: "OPERATOR",
+        resource: printerName,
+        result: "FAILURE",
+        errorMessage: err.message
+      });
       return {
         success: false,
         error: {
@@ -993,18 +1832,10 @@ function registerPrinterHandlers() {
 // electron/ipc/files/fileHandlers.ts
 var import_electron7 = require("electron");
 function registerFileHandlers() {
-  import_electron7.ipcMain.handle("file:read", async (_event, filePath) => {
-    const valid = validateFilePath(filePath, []);
-    return await fileManager.readFile(valid);
-  });
-  import_electron7.ipcMain.handle("file:write", async (_event, filePath, content) => {
-    const valid = validateFilePath(filePath, []);
-    await fileManager.writeFile(valid, content);
-    return { success: true };
-  });
   import_electron7.ipcMain.handle("file:exists", async (_event, filePath) => {
     try {
-      const valid = validateFilePath(filePath, []);
+      if (!filePath || typeof filePath !== "string") return false;
+      const valid = validateFilePath(filePath, [".lforge", ".json", ".prn", ".txt"]);
       return fileManager.fileExists(valid);
     } catch {
       return false;
@@ -1014,7 +1845,7 @@ function registerFileHandlers() {
 
 // electron/ipc/system/systemHandlers.ts
 var import_electron8 = require("electron");
-var import_fs6 = __toESM(require("fs"), 1);
+var import_fs9 = __toESM(require("fs"), 1);
 
 // electron/services/system/systemInfo.ts
 var import_os = __toESM(require("os"), 1);
@@ -1040,7 +1871,7 @@ function registerSystemHandlers() {
   });
   import_electron8.ipcMain.handle("settings:get", async () => {
     const file = paths.getSettingsFilePath();
-    if (!import_fs6.default.existsSync(file)) {
+    if (!import_fs9.default.existsSync(file)) {
       return {
         measurementUnit: "mm",
         defaultDpi: 300,
@@ -1051,7 +1882,7 @@ function registerSystemHandlers() {
       };
     }
     try {
-      const content = import_fs6.default.readFileSync(file, "utf-8");
+      const content = import_fs9.default.readFileSync(file, "utf-8");
       return JSON.parse(content);
     } catch (err) {
       logger.error("SystemHandlers", "Failed to read settings file", err);
@@ -1062,11 +1893,11 @@ function registerSystemHandlers() {
     const file = paths.getSettingsFilePath();
     try {
       let current = {};
-      if (import_fs6.default.existsSync(file)) {
-        current = JSON.parse(import_fs6.default.readFileSync(file, "utf-8"));
+      if (import_fs9.default.existsSync(file)) {
+        current = JSON.parse(import_fs9.default.readFileSync(file, "utf-8"));
       }
       const updated = { ...current, ...newSettings };
-      import_fs6.default.writeFileSync(file, JSON.stringify(updated, null, 2), "utf-8");
+      import_fs9.default.writeFileSync(file, JSON.stringify(updated, null, 2), "utf-8");
       logger.info("SystemHandlers", "Settings saved successfully");
       return updated;
     } catch (err) {
@@ -1103,7 +1934,8 @@ if (!gotTheLock) {
 }
 function createMainWindow() {
   logger.info("Main", "Creating desktop MainWindow...");
-  const preloadScript = import_path6.default.join(__dirname, "preload.cjs");
+  const preloadScript = import_path8.default.join(__dirname, "preload.cjs");
+  const isFrameless = !process.env.DEV_WINDOW_FRAME;
   mainWindow = new import_electron9.BrowserWindow({
     width: appConfig.window.defaultWidth,
     height: appConfig.window.defaultHeight,
@@ -1111,12 +1943,25 @@ function createMainWindow() {
     minHeight: appConfig.window.minHeight,
     backgroundColor: appConfig.window.backgroundColor,
     title: "LabelForge Studio Enterprise",
+    frame: !isFrameless,
+    titleBarStyle: isFrameless ? "hidden" : "default",
+    autoHideMenuBar: isFrameless,
     show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
       preload: preloadScript
+    }
+  });
+  mainWindow.on("maximize", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("window:maximize-changed", true);
+    }
+  });
+  mainWindow.on("unmaximize", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("window:maximize-changed", false);
     }
   });
   mainWindow.once("ready-to-show", () => {
@@ -1135,7 +1980,11 @@ function createMainWindow() {
     }
     return { action: "deny" };
   });
-  buildNativeMenu(mainWindow);
+  if (!isFrameless) {
+    buildNativeMenu(mainWindow);
+  } else {
+    import_electron9.Menu.setApplicationMenu(null);
+  }
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || appConfig.devServerUrl;
   const isDev = !import_electron9.app.isPackaged && process.env.NODE_ENV !== "production";
   if (isDev) {
@@ -1150,7 +1999,7 @@ function createMainWindow() {
   return mainWindow;
 }
 function loadDistFile(win) {
-  const indexPath = import_path6.default.join(import_electron9.app.getAppPath(), "dist", "index.html");
+  const indexPath = import_path8.default.join(import_electron9.app.getAppPath(), "dist", "index.html");
   logger.info("Main", `Loading packaged index.html: ${indexPath}`);
   win.loadFile(indexPath).catch((err) => {
     logger.error("Main", `Failed to load packaged index.html: ${err.message}`);

@@ -7,23 +7,24 @@ export interface PrinterDefinition {
   id: string;
   name: string;
   displayName: string;
-  type: 'windows' | 'network' | 'zpl' | 'tspl' | 'bartender';
+  type: 'windows' | 'network' | 'zpl' | 'tspl' | 'epl' | 'cpcl' | 'sbpl' | 'dpl' | 'bartender';
   isDefault: boolean;
   status: number;
   description?: string;
   host?: string;
   port?: number;
   dpi?: number;
-  protocolsSupported: Array<'zpl' | 'tspl' | 'epl' | 'pdf' | 'raster'>;
+  protocolsSupported: Array<'zpl' | 'tspl' | 'epl' | 'cpcl' | 'sbpl' | 'dpl' | 'pdf' | 'raster' | 'raw'>;
 }
 
 export interface PrintJobRequest {
   printerName: string;
-  printerType: 'windows' | 'network' | 'zpl' | 'tspl' | 'bartender';
+  printerType: 'windows' | 'network' | 'zpl' | 'tspl' | 'epl' | 'cpcl' | 'sbpl' | 'dpl' | 'bartender';
   copies?: number;
   rawPayload?: string;
   networkHost?: string;
   networkPort?: number;
+  timeoutMs?: number;
   bartenderTemplate?: string;
   bartenderPayload?: Record<string, any>;
   previewDataUrl?: string;
