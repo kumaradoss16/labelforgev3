@@ -32,7 +32,7 @@ import {
   ChevronsDown,
   FileText
 } from 'lucide-react';
-import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject } from '../../types/label';
+import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GridSettings } from '../../types/label';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { BARCODE_CATALOG } from '../../services/barcodeEngine';
 import { FONT_GROUPS, getFontDefinition } from '../../services/fontFamilies';
@@ -45,6 +45,8 @@ interface PropertiesPanelProps {
   onOpenBarcodeWizard: () => void;
   onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both') => void;
   onZOrder?: (direction: 'forward' | 'backward' | 'front' | 'back') => void;
+  gridSettings?: GridSettings;
+  onUpdateGridSettings?: (settings: GridSettings) => void;
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -55,18 +57,214 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   onOpenBarcodeWizard,
   onAlign,
   onZOrder,
+  gridSettings = {
+    style: 'lines',
+    interval: 10,
+    subInterval: 2,
+    dashPattern: 'dashed',
+    opacity: 0.2,
+    color: '#2563eb'
+  },
+  onUpdateGridSettings,
 }) => {
   if (!selectedObject) {
+    const handleUpdateGrid = (changes: Partial<GridSettings>) => {
+      if (onUpdateGridSettings) {
+        onUpdateGridSettings({
+          ...gridSettings,
+          ...changes
+        });
+      }
+    };
+
     return (
-      <aside className="w-72 bg-[#1e2129] border-l border-[#2f333f] text-[#c8cbd2] select-none flex flex-col h-full text-xs p-3">
-        <div className="flex items-center space-x-2 text-gray-400 font-semibold border-b border-[#2d313d] pb-2">
-          <Settings className="w-4 h-4 text-gray-400" />
-          <span className="uppercase tracking-wider text-[11px]">Object Properties</span>
+      <aside className="w-72 bg-[#1e2129] border-l border-[#2f333f] text-[#c8cbd2] select-none flex flex-col h-full text-xs overflow-y-auto">
+        {/* Header */}
+        <div className="p-2.5 font-semibold text-[11px] uppercase tracking-wider text-gray-300 border-b border-[#2d313d] flex items-center justify-between bg-[#242832]">
+          <div className="flex items-center space-x-1.5">
+            <Settings className="w-3.5 h-3.5 text-blue-400" />
+            <span>Canvas Properties</span>
+          </div>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center text-center text-gray-500 p-4 space-y-2">
-          <Settings className="w-8 h-8 text-gray-600 animate-spin-slow" />
-          <p className="text-xs">No object selected on the canvas.</p>
-          <p className="text-[10px] text-gray-600">Click any label element or insert a new barcode/text to view and edit its properties.</p>
+
+        <div className="p-3 space-y-4">
+          {/* General Workspace Info */}
+          <section className="space-y-1.5">
+            <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Workspace</div>
+            <div className="bg-[#14161d] p-2.5 rounded border border-[#2a2d37] space-y-1.5">
+              <div className="flex justify-between text-gray-400">
+                <span>Selection:</span>
+                <span className="text-gray-300 font-medium">None (Canvas Selected)</span>
+              </div>
+              <p className="text-[10px] text-gray-500 leading-normal">
+                Click any element on the canvas to edit its properties, or customize the designer's grid alignment helpers below.
+              </p>
+            </div>
+          </section>
+
+          {/* Grid Style Section */}
+          <section className="space-y-2 border-t border-[#2d313d] pt-3">
+            <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Advanced Grid Layout</div>
+            
+            <div className="space-y-2">
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Grid Pattern Style</label>
+                <div className="grid grid-cols-3 gap-1 bg-[#16181f] p-0.5 rounded border border-[#373c49]">
+                  {(['lines', 'dots', 'crosses'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => handleUpdateGrid({ style: s })}
+                      className={`py-1 rounded text-[10px] font-medium capitalize transition-colors ${
+                        gridSettings.style === s
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-gray-400 hover:text-gray-200'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Grid Color Picker */}
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Grid & Alignment Color</label>
+                <div className="flex items-center space-x-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={gridSettings.color}
+                      onChange={(e) => handleUpdateGrid({ color: e.target.value })}
+                      className="w-full bg-[#16181f] border border-[#373c49] rounded pl-8 pr-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                    <div
+                      className="absolute left-2 top-1.5 w-3.5 h-3.5 rounded-full border border-white/20"
+                      style={{ backgroundColor: gridSettings.color }}
+                    />
+                  </div>
+                  <input
+                    type="color"
+                    value={gridSettings.color.startsWith('#') ? gridSettings.color : '#2563eb'}
+                    onChange={(e) => handleUpdateGrid({ color: e.target.value })}
+                    className="w-8 h-6 bg-transparent border-0 cursor-pointer p-0 shrink-0"
+                  />
+                </div>
+                {/* Preset circles */}
+                <div className="flex items-center space-x-1.5 mt-1.5">
+                  {['#2563eb', '#64748b', '#ef4444', '#10b981', '#f59e0b', '#ec4899', '#ffffff'].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => handleUpdateGrid({ color })}
+                      className={`w-4.5 h-4.5 rounded-full border border-white/15 transition-transform hover:scale-110 ${
+                        gridSettings.color === color ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-[#1e2129]' : ''
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Grid Opacity Slider (Independent of Background) */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[10px] text-gray-400">Grid Opacity</label>
+                  <span className="text-[10px] font-mono text-gray-400">{Math.round(gridSettings.opacity * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="100"
+                  step="5"
+                  value={gridSettings.opacity * 100}
+                  onChange={(e) => handleUpdateGrid({ opacity: parseInt(e.target.value) / 100 })}
+                  className="w-full accent-blue-500 cursor-pointer bg-[#16181f] rounded-lg h-1"
+                />
+              </div>
+
+              {/* Major Interval (Interval) */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-0.5">Major Grid (mm)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="1"
+                    value={gridSettings.interval}
+                    onChange={(e) => handleUpdateGrid({ interval: Math.max(1, parseInt(e.target.value) || 10) })}
+                    className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-0.5">Sub-Grid Interval</label>
+                  <select
+                    value={gridSettings.subInterval}
+                    onChange={(e) => handleUpdateGrid({ subInterval: parseFloat(e.target.value) })}
+                    className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    <option value={1}>1 mm</option>
+                    <option value={2}>2 mm</option>
+                    <option value={5}>5 mm</option>
+                    <option value={0.5}>0.5 mm</option>
+                    {gridSettings.interval % 5 === 0 && <option value={gridSettings.interval / 5}>1/5 Major ({gridSettings.interval / 5}mm)</option>}
+                    {gridSettings.interval % 10 === 0 && <option value={gridSettings.interval / 10}>1/10 Major ({gridSettings.interval / 10}mm)</option>}
+                    {gridSettings.interval % 4 === 0 && <option value={gridSettings.interval / 4}>1/4 Major ({gridSettings.interval / 4}mm)</option>}
+                    {gridSettings.interval % 2 === 0 && <option value={gridSettings.interval / 2}>1/2 Major ({gridSettings.interval / 2}mm)</option>}
+                  </select>
+                </div>
+              </div>
+
+              {/* Dash Pattern Configuration */}
+              <div className="pt-1">
+                <label className="text-[10px] text-gray-400 block mb-1">Grid Line Dash Pattern</label>
+                <select
+                  value={['solid', 'dashed', 'dotted'].includes(gridSettings.dashPattern) ? gridSettings.dashPattern : 'custom'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'custom') {
+                      handleUpdateGrid({ dashPattern: '3 1 1 1' });
+                    } else {
+                      handleUpdateGrid({ dashPattern: val as any });
+                    }
+                  }}
+                  className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500 mb-1.5"
+                >
+                  <option value="solid">Solid Lines</option>
+                  <option value="dashed">Dashed Pattern</option>
+                  <option value="dotted">Dotted / Dense Pattern</option>
+                  <option value="custom">Custom Pattern Array...</option>
+                </select>
+
+                {!['solid', 'dashed', 'dotted'].includes(gridSettings.dashPattern) && (
+                  <div>
+                    <label className="text-[9px] text-gray-500 block mb-0.5">Custom SVG dasharray (e.g. "4 2 1 2")</label>
+                    <input
+                      type="text"
+                      value={gridSettings.dashPattern}
+                      onChange={(e) => handleUpdateGrid({ dashPattern: e.target.value })}
+                      placeholder="e.g. 5 2 2 2"
+                      className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Quick Snap Settings for user convenience */}
+          <section className="space-y-1.5 border-t border-[#2d313d] pt-3">
+            <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Canvas Helpers</div>
+            <div className="bg-[#14161d] p-2 rounded border border-[#2a2d37] space-y-1">
+              <div className="flex justify-between items-center text-[10px] text-gray-400 py-1">
+                <span>Rulers Visible:</span>
+                <span className="font-semibold text-blue-400">Enabled</span>
+              </div>
+              <div className="flex justify-between items-center text-[10px] text-gray-400 py-1">
+                <span>Guides Snapping:</span>
+                <span className="font-semibold text-cyan-400">Active</span>
+              </div>
+            </div>
+          </section>
         </div>
       </aside>
     );

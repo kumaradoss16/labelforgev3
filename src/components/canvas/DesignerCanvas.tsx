@@ -34,7 +34,7 @@ import {
   X,
   Square
 } from 'lucide-react';
-import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GuideLine } from '../../types/label';
+import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GuideLine, GridSettings } from '../../types/label';
 import { DataRecord, SerializationCounter } from '../../types/database';
 import { evaluateExpression } from '../../services/dataBinding';
 import { render1DBarcodeSvg, renderQRCodeDataUrl, generateDataMatrixSvg, generatePostal4StateSvg } from '../../services/barcodeEngine';
@@ -58,6 +58,7 @@ interface DesignerCanvasProps {
   onDuplicateSelected?: () => void;
   showGrid: boolean;
   setShowGrid?: (v: boolean) => void;
+  gridSettings?: GridSettings;
   snapToGrid: boolean;
   setSnapToGrid?: (v: boolean) => void;
   smartSnapping?: boolean;
@@ -108,6 +109,14 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   onDuplicateSelected,
   showGrid,
   setShowGrid,
+  gridSettings = {
+    style: 'lines',
+    interval: 10,
+    subInterval: 2,
+    dashPattern: 'dashed',
+    opacity: 0.2,
+    color: '#2563eb'
+  },
   snapToGrid,
   setSnapToGrid,
   smartSnapping,
@@ -408,8 +417,14 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   }, [doc.objects, activeRecord, counter]);
 
   // Snap coordinate helper (Grid + Guides)
-  const snap = useCallback((val: number, isVertical = false, step = 1): number => {
-    let result = snapToGrid ? Math.round(val / step) * step : val;
+  const snap = useCallback((val: number, isVertical = false, step?: number): number => {
+    const actualStep = step !== undefined
+      ? step
+      : (gridSettings.subInterval > 0 && gridSettings.subInterval < gridSettings.interval)
+        ? gridSettings.subInterval
+        : gridSettings.interval;
+
+    let result = snapToGrid ? Math.round(val / actualStep) * actualStep : val;
 
     // Snap to guides if enabled
     if (snapToGuides && guides.length > 0) {
@@ -423,7 +438,7 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
     }
 
     return Number(result.toFixed(2));
-  }, [snapToGrid, snapToGuides, guides]);
+  }, [snapToGrid, snapToGuides, guides, gridSettings]);
 
   // Start dragging a label object or group of selected objects
   const handleStartObjectDrag = (e: React.MouseEvent, obj: LabelObject) => {
@@ -1355,17 +1370,123 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
               )}
 
               {/* Grid Pattern on Label */}
-              {showGrid && (
-                <div
-                  className="absolute inset-0 pointer-events-none z-0 opacity-20"
-                  style={{
-                    backgroundImage: `
-                      radial-gradient(circle, #2563eb 1px, transparent 1px)
-                    `,
-                    backgroundSize: `${5 * pxPerMm}px ${5 * pxPerMm}px`,
-                  }}
-                />
-              )}
+              {showGrid && (() => {
+                const majorWidth = gridSettings.interval * pxPerMm;
+                const majorHeight = gridSettings.interval * pxPerMm;
+                const effectiveSubInterval = gridSettings.subInterval > 0 && gridSettings.subInterval < gridSettings.interval
+                  ? gridSettings.subInterval
+                  : 0;
+                const minorWidth = effectiveSubInterval * pxPerMm;
+                const minorHeight = effectiveSubInterval * pxPerMm;
+                const hasSubgrid = effectiveSubInterval > 0;
+
+                let majorDash: string | undefined = undefined;
+                let minorDash: string | undefined = undefined;
+
+                if (gridSettings.dashPattern === 'solid') {
+                  majorDash = undefined;
+                  minorDash = undefined;
+                } else if (gridSettings.dashPattern === 'dashed') {
+                  majorDash = '4 2';
+                  minorDash = '2 2';
+                } else if (gridSettings.dashPattern === 'dotted') {
+                  majorDash = '1 1';
+                  minorDash = '1 1';
+                } else {
+                  majorDash = gridSettings.dashPattern;
+                  minorDash = gridSettings.dashPattern;
+                }
+
+                return (
+                  <svg
+                    className="absolute inset-0 w-full h-full pointer-events-none z-0"
+                    style={{ opacity: gridSettings.opacity }}
+                  >
+                    <defs>
+                      {hasSubgrid && (
+                        <pattern
+                          id="canvas-sub-grid-pattern"
+                          width={minorWidth}
+                          height={minorHeight}
+                          patternUnits="userSpaceOnUse"
+                          overflow="visible"
+                        >
+                          {gridSettings.style === 'lines' && (
+                            <path
+                              d={`M ${minorWidth} 0 L 0 0 0 ${minorHeight}`}
+                              fill="none"
+                              stroke={gridSettings.color}
+                              strokeWidth="0.5"
+                              strokeDasharray={minorDash}
+                              opacity="0.4"
+                            />
+                          )}
+                          {gridSettings.style === 'dots' && (
+                            <circle
+                              cx="0"
+                              cy="0"
+                              r="1"
+                              fill={gridSettings.color}
+                              opacity="0.4"
+                            />
+                          )}
+                          {gridSettings.style === 'crosses' && (
+                            <path
+                              d="M -2 0 L 2 0 M 0 -2 L 0 2"
+                              fill="none"
+                              stroke={gridSettings.color}
+                              strokeWidth="0.5"
+                              opacity="0.4"
+                            />
+                          )}
+                        </pattern>
+                      )}
+
+                      <pattern
+                        id="canvas-major-grid-pattern"
+                        width={majorWidth}
+                        height={majorHeight}
+                        patternUnits="userSpaceOnUse"
+                        overflow="visible"
+                      >
+                        {hasSubgrid && (
+                          <rect width={majorWidth} height={majorHeight} fill="url(#canvas-sub-grid-pattern)" />
+                        )}
+                        {gridSettings.style === 'lines' && (
+                          <path
+                            d={`M ${majorWidth} 0 L 0 0 0 ${majorHeight}`}
+                            fill="none"
+                            stroke={gridSettings.color}
+                            strokeWidth="1.2"
+                            strokeDasharray={majorDash}
+                            opacity="0.9"
+                          />
+                        )}
+                        {gridSettings.style === 'dots' && (
+                          <circle
+                            cx="0"
+                            cy="0"
+                            r="1.75"
+                            fill={gridSettings.color}
+                            opacity="0.9"
+                          />
+                        )}
+                        {gridSettings.style === 'crosses' && (
+                          <path
+                            d="M -4 0 L 4 0 M 0 -4 L 0 4"
+                            fill="none"
+                            stroke={gridSettings.color}
+                            strokeWidth="1.2"
+                            opacity="0.9"
+                          />
+                        )}
+                      </pattern>
+                    </defs>
+
+                    <rect width="100%" height="100%" fill="url(#canvas-major-grid-pattern)" />
+                  </svg>
+                );
+              })()}
 
               {/* Label Objects Rendering */}
               {[...doc.objects]

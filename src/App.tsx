@@ -23,7 +23,7 @@ import { TemplateCenter } from './components/templates/TemplateCenter';
 import { SaveAsTemplateModal } from './components/templates/SaveAsTemplateModal';
 
 // Types & Services
-import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
+import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle, GridSettings } from './types/label';
 import { PrinterProfile, PrintJob, PrintAuditLog, UserRole, BarTenderTemplateMetadata, VIRTUAL_FALLBACK_PRINTER } from './types/printer';
 import { DataSourceDefinition, SerializationCounter } from './types/database';
 import { TemplateRecord } from './types/template';
@@ -104,6 +104,14 @@ export const App: React.FC = () => {
   const [zoom, setZoom] = useState<number>(1.25);
   const [showGrid, setShowGrid] = useState<boolean>(true);
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
+  const [gridSettings, setGridSettings] = useState<GridSettings>({
+    style: 'lines',
+    interval: 10,
+    subInterval: 2,
+    dashPattern: 'dashed',
+    opacity: 0.2,
+    color: '#2563eb'
+  });
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [showGuides, setShowGuides] = useState<boolean>(true);
   const [lockGuides, setLockGuides] = useState<boolean>(false);
@@ -1121,6 +1129,7 @@ export const App: React.FC = () => {
                 onDuplicateSelected={handleDuplicateObject}
                 showGrid={showGrid}
                 setShowGrid={setShowGrid}
+                gridSettings={gridSettings}
                 snapToGrid={snapToGrid}
                 setSnapToGrid={setSnapToGrid}
                 smartSnapping={smartSnapping}
@@ -1179,6 +1188,8 @@ export const App: React.FC = () => {
                 onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
                 onAlign={handleAlign}
                 onZOrder={handleZOrder}
+                gridSettings={gridSettings}
+                onUpdateGridSettings={setGridSettings}
               />
             )}
           </div>

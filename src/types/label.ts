@@ -10,6 +10,15 @@ export interface GuideLine {
   position: number; // in mm
 }
 
+export interface GridSettings {
+  style: 'lines' | 'dots' | 'crosses';
+  interval: number; // in mm
+  subInterval: number; // in mm (sub-grid interval)
+  dashPattern: 'solid' | 'dashed' | 'dotted' | string;
+  opacity: number; // 0.0 to 1.0
+  color: string;
+}
+
 export interface LabelDimensions {
   width: number;       // In specified unit (default mm)
   height: number;      // In specified unit (default mm)
