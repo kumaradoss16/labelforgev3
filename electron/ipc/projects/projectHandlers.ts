@@ -43,11 +43,11 @@ export function registerProjectHandlers(): void {
         isDialog = true;
       }
 
-      // Enforce path containment strictly if direct renderer call; skip for user dialogue selection
+      // Enforce path containment strictly
       const validPath = validateFilePath(
         targetPath,
         ['.lforge', '.json'],
-        isDialog ? undefined : paths.getAllowedRoots()
+        paths.getAllowedRoots()
       );
       const pkg = await projectStorage.loadProject(validPath);
 
@@ -86,11 +86,11 @@ export function registerProjectHandlers(): void {
         isDialog = true;
       }
 
-      // Enforce path containment strictly if direct renderer call; skip for user dialogue selection
+      // Enforce path containment strictly
       const validPath = validateFilePath(
         targetPath,
         ['.lforge', '.json'],
-        isDialog ? undefined : paths.getAllowedRoots()
+        paths.getAllowedRoots()
       );
       await projectStorage.saveProject(validPath, projectData);
 
@@ -121,8 +121,8 @@ export function registerProjectHandlers(): void {
         return { success: false, error: 'Canceled by user' };
       }
 
-      // Always skips root containment for user-initiated dialog selections
-      const validPath = validateFilePath(res.filePath, ['.lforge', '.json']);
+      // Enforce path containment strictly
+      const validPath = validateFilePath(res.filePath, ['.lforge', '.json'], paths.getAllowedRoots());
       await projectStorage.saveProject(validPath, projectData);
 
       return {
