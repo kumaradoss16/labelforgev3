@@ -110,7 +110,8 @@ export async function desktopGetPrinters(): Promise<NativePrinterInfo[]> {
 
 export async function desktopPrintLabel(request: DesktopPrintRequest): Promise<DesktopPrintResult> {
   if (isDesktopApp()) {
-    return await window.electronAPI!.printer.print(request);
+    const identity = request.identity || (typeof window !== 'undefined' ? (window as any).currentIdentity : undefined);
+    return await window.electronAPI!.printer.print({ ...request, identity });
   }
 
   // Web fallback: Browser window.print()
@@ -120,7 +121,8 @@ export async function desktopPrintLabel(request: DesktopPrintRequest): Promise<D
 
 export async function desktopTestPrint(printerName: string, protocol?: 'zpl' | 'tspl' | 'spooler'): Promise<DesktopPrintResult> {
   if (isDesktopApp()) {
-    return await window.electronAPI!.printer.testPrint(printerName, protocol);
+    const identity = typeof window !== 'undefined' ? (window as any).currentIdentity : undefined;
+    return await window.electronAPI!.printer.testPrint(printerName, protocol, identity);
   }
   return { success: false, error: { code: 'NOT_DESKTOP', message: 'Direct thermal hardware test print requires desktop execution' } };
 }

@@ -43,6 +43,12 @@ export interface DesktopPrintRequest {
   bartenderPayload?: Record<string, any>;
   previewDataUrl?: string;
   jobName?: string;
+  identity?: {
+    userId: string;
+    userName: string;
+    role: string;
+    email?: string;
+  };
 }
 
 export interface DesktopPrintResult {
@@ -128,7 +134,7 @@ export interface ElectronAPI {
     list(): Promise<NativePrinterInfo[]>;
     getDefault(): Promise<NativePrinterInfo | null>;
     print(request: DesktopPrintRequest): Promise<DesktopPrintResult>;
-    testPrint(printerName: string, protocol?: string): Promise<DesktopPrintResult>;
+    testPrint(printerName: string, protocol?: string, identity?: any): Promise<DesktopPrintResult>;
   };
 
   system: {

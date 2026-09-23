@@ -79,6 +79,31 @@ class PathManager {
     return path.join(this.userDataDir, 'cache');
   }
 
+  public getAllowedRoots(): string[] {
+    const roots = [this.userDataDir];
+    try {
+      const docs = app.getPath('documents');
+      if (docs) roots.push(docs);
+    } catch {
+      const home = process.env.HOME || process.env.USERPROFILE;
+      if (home) roots.push(path.join(home, 'Documents'));
+    }
+    try {
+      const desktop = app.getPath('desktop');
+      if (desktop) roots.push(desktop);
+    } catch {
+      const home = process.env.HOME || process.env.USERPROFILE;
+      if (home) roots.push(path.join(home, 'Desktop'));
+    }
+    try {
+      const temp = app.getPath('temp');
+      if (temp) roots.push(temp);
+    } catch {
+      roots.push(process.env.TEMP || '/tmp');
+    }
+    return roots;
+  }
+
   public getPreloadPath(): string {
     return path.join(__dirname, 'preload.cjs');
   }

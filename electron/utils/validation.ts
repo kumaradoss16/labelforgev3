@@ -6,7 +6,11 @@
 import path from 'path';
 import { ValidationError } from './errors';
 
-export function validateFilePath(filePath: string, allowedExtensions: string[] = ['.lforge', '.json', '.txt']): string {
+export function validateFilePath(
+  filePath: string,
+  allowedExtensions: string[] = ['.lforge', '.json', '.txt'],
+  allowedRoots?: string[]
+): string {
   if (!filePath || typeof filePath !== 'string') {
     throw new ValidationError('File path must be a non-empty string');
   }
@@ -16,14 +20,25 @@ export function validateFilePath(filePath: string, allowedExtensions: string[] =
     throw new ValidationError('File path contains invalid null byte characters');
   }
 
-  const normalized = path.normalize(filePath);
-  const ext = path.extname(normalized).toLowerCase();
+  const resolved = path.resolve(filePath);
+
+  if (allowedRoots && allowedRoots.length > 0) {
+    const isInsideAllowedRoot = allowedRoots.some(root => {
+      const resolvedRoot = path.resolve(root);
+      return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep);
+    });
+    if (!isInsideAllowedRoot) {
+      throw new ValidationError('File path is outside permitted directories');
+    }
+  }
+
+  const ext = path.extname(resolved).toLowerCase();
 
   if (allowedExtensions.length > 0 && !allowedExtensions.includes(ext)) {
     throw new ValidationError(`Unsupported file extension '${ext}'. Allowed: ${allowedExtensions.join(', ')}`);
   }
 
-  return normalized;
+  return resolved;
 }
 
 export function validatePrintRequest(request: any): void {

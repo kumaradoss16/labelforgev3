@@ -48,7 +48,7 @@ const electronAPI = {
     list: () => ipcRenderer.invoke('printer:list'),
     getDefault: () => ipcRenderer.invoke('printer:default'),
     print: (request: any) => ipcRenderer.invoke('printer:print', request),
-    testPrint: (printerName: string, protocol?: string) => ipcRenderer.invoke('printer:test', printerName, protocol)
+    testPrint: (printerName: string, protocol?: string, identity?: any) => ipcRenderer.invoke('printer:test', printerName, protocol, identity)
   },
 
   system: {

@@ -45,7 +45,7 @@ function createMainWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       preload: preloadScript
     }
   });

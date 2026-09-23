@@ -9,6 +9,8 @@ import { recentProjects } from '../../services/filesystem/recentFiles';
 import { validateFilePath } from '../../utils/validation';
 import { logger } from '../../utils/logger';
 
+import { paths } from '../../config/paths';
+
 export function registerProjectHandlers(): void {
   // Create New Project
   ipcMain.handle('project:create', async () => {
@@ -20,6 +22,7 @@ export function registerProjectHandlers(): void {
   ipcMain.handle('project:open', async (_event, filePath?: string) => {
     try {
       let targetPath = filePath;
+      let isDialog = false;
 
       if (!targetPath) {
         const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
@@ -37,9 +40,15 @@ export function registerProjectHandlers(): void {
           return { success: false, error: 'Canceled by user' };
         }
         targetPath = res.filePaths[0];
+        isDialog = true;
       }
 
-      const validPath = validateFilePath(targetPath, ['.lforge', '.json']);
+      // Enforce path containment strictly if direct renderer call; skip for user dialogue selection
+      const validPath = validateFilePath(
+        targetPath,
+        ['.lforge', '.json'],
+        isDialog ? undefined : paths.getAllowedRoots()
+      );
       const pkg = await projectStorage.loadProject(validPath);
 
       return {
@@ -60,6 +69,7 @@ export function registerProjectHandlers(): void {
   ipcMain.handle('project:save', async (_event, projectData: LForgePackage, filePath?: string) => {
     try {
       let targetPath = filePath;
+      let isDialog = false;
 
       if (!targetPath) {
         const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
@@ -73,9 +83,15 @@ export function registerProjectHandlers(): void {
           return { success: false, error: 'Canceled by user' };
         }
         targetPath = res.filePath;
+        isDialog = true;
       }
 
-      const validPath = validateFilePath(targetPath, ['.lforge', '.json']);
+      // Enforce path containment strictly if direct renderer call; skip for user dialogue selection
+      const validPath = validateFilePath(
+        targetPath,
+        ['.lforge', '.json'],
+        isDialog ? undefined : paths.getAllowedRoots()
+      );
       await projectStorage.saveProject(validPath, projectData);
 
       return {
@@ -105,6 +121,7 @@ export function registerProjectHandlers(): void {
         return { success: false, error: 'Canceled by user' };
       }
 
+      // Always skips root containment for user-initiated dialog selections
       const validPath = validateFilePath(res.filePath, ['.lforge', '.json']);
       await projectStorage.saveProject(validPath, projectData);
 

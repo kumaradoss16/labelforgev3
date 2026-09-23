@@ -852,6 +852,29 @@ export const App: React.FC = () => {
     showToast(`Opened New Label Document: ${nextDoc.name}`);
   };
 
+  useEffect(() => {
+    const handleRoleChangedAudit = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const auditLog: PrintAuditLog = {
+        id: `LOG-${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString(),
+        userId: detail.userId,
+        userName: detail.afterUser,
+        userRole: detail.afterRole,
+        action: 'USER_PERMISSION_CHANGED',
+        result: 'SUCCESS',
+        details: `Privileged Role Escalation. Identity transitioned from ${detail.beforeUser} (${detail.beforeRole}) to ${detail.afterUser} (${detail.afterRole}).`,
+        ipAddress: detail.ipAddress,
+      };
+      setAuditLogs(prev => [auditLog, ...prev]);
+    };
+
+    window.addEventListener('role-changed-audit', handleRoleChangedAudit);
+    return () => {
+      window.removeEventListener('role-changed-audit', handleRoleChangedAudit);
+    };
+  }, []);
+
   // Global Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

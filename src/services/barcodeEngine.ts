@@ -658,6 +658,8 @@ export function generateDataMatrixSvg(
   fgColor = '#000000',
   bgColor = 'transparent'
 ): string {
+  const safeFg = validateHexColor(fgColor);
+  const safeBg = bgColor === 'transparent' ? 'transparent' : validateHexColor(bgColor, '#ffffff');
   try {
     const cleanData = data || '01006141419999961726091410LOT88121SN10029';
     const svgStr = bwipjs.toSVG({
@@ -665,13 +667,13 @@ export function generateDataMatrixSvg(
       text: cleanData,
       scale: 3,
       padding: 0,
-      barcolor: fgColor === 'transparent' ? '000000' : fgColor.replace('#', ''),
-      backgroundcolor: bgColor === 'transparent' ? undefined : bgColor.replace('#', '')
+      barcolor: safeFg === 'transparent' ? '000000' : safeFg.replace('#', ''),
+      backgroundcolor: safeBg === 'transparent' ? undefined : safeBg.replace('#', '')
     });
     return svgStr;
   } catch (err) {
     // Fallback if bwip-js encounters formatting error
-    return generateBwipSvgFallback('datamatrix', data, fgColor);
+    return generateBwipSvgFallback('datamatrix', data, safeFg);
   }
 }
 
@@ -685,6 +687,7 @@ export function generatePostal4StateSvg(
   fgColor = '#000000',
   symbology = 'usps-imb'
 ): string {
+  const safeFg = validateHexColor(fgColor);
   try {
     const bcid = getBwipBcid(symbology) || 'onecode';
     let cleanData = (data || '').replace(/[\s-]/g, '');
@@ -701,11 +704,11 @@ export function generatePostal4StateSvg(
       text: cleanData,
       scale: 2,
       height: 12,
-      barcolor: fgColor === 'transparent' ? '000000' : fgColor.replace('#', '')
+      barcolor: safeFg === 'transparent' ? '000000' : safeFg.replace('#', '')
     });
     return svgStr;
   } catch (err) {
-    return generateBwipSvgFallback(symbology, data, fgColor);
+    return generateBwipSvgFallback(symbology, data, safeFg);
   }
 }
 
@@ -717,6 +720,9 @@ export function renderBwipBarcodeSvg(
   data: string,
   options?: { fgColor?: string; bgColor?: string; height?: number; scale?: number }
 ): { svgContent: string; error?: string } {
+  const safeFg = validateHexColor(options?.fgColor || '#000000');
+  const safeBg = options?.bgColor && options.bgColor !== 'transparent' ? validateHexColor(options.bgColor, '#ffffff') : undefined;
+
   try {
     let bcid = getBwipBcid(symbology);
     if (!bcid) {
@@ -732,8 +738,8 @@ export function renderBwipBarcodeSvg(
         text: textToRender,
         scale: options?.scale || 3,
         height: options?.height || 15,
-        barcolor: options?.fgColor ? options.fgColor.replace('#', '') : '000000',
-        backgroundcolor: options?.bgColor && options.bgColor !== 'transparent' ? options.bgColor.replace('#', '') : undefined
+        barcolor: safeFg.replace('#', ''),
+        backgroundcolor: safeBg ? safeBg.replace('#', '') : undefined
       });
     } catch (bwipErr) {
       if (bcid === 'gs1128') {
@@ -742,8 +748,8 @@ export function renderBwipBarcodeSvg(
           text: textToRender,
           scale: options?.scale || 3,
           height: options?.height || 15,
-          barcolor: options?.fgColor ? options.fgColor.replace('#', '') : '000000',
-          backgroundcolor: options?.bgColor && options.bgColor !== 'transparent' ? options.bgColor.replace('#', '') : undefined
+          barcolor: safeFg.replace('#', ''),
+          backgroundcolor: safeBg ? safeBg.replace('#', '') : undefined
         });
       } else {
         throw bwipErr;
@@ -752,17 +758,22 @@ export function renderBwipBarcodeSvg(
 
     return { svgContent: svgStr };
   } catch (err: any) {
+    const fallbackColor = safeFg;
     return {
-      svgContent: '',
+      svgContent: generateBwipSvgFallback(symbology, data, fallbackColor),
       error: err?.message || `Failed to render ${symbology} barcode`
     };
   }
 }
 
+import { validateHexColor, escapeXml } from './xmlSafety';
+
 function generateBwipSvgFallback(symbology: string, data: string, fgColor: string): string {
+  const safeColor = validateHexColor(fgColor);
+  const safeSymbology = escapeXml(symbology);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
-    <rect x="0" y="0" width="100" height="100" fill="none" stroke="${fgColor}" stroke-width="2"/>
-    <text x="50" y="50" font-size="8" text-anchor="middle" fill="${fgColor}">${symbology.toUpperCase()}</text>
+    <rect x="0" y="0" width="100" height="100" fill="none" stroke="${safeColor}" stroke-width="2"/>
+    <text x="50" y="50" font-size="8" text-anchor="middle" fill="${safeColor}">${safeSymbology.toUpperCase()}</text>
   </svg>`;
 }
 
@@ -776,12 +787,15 @@ export function render1DBarcodeSvg(
   widthMm: number,
   heightMm: number
 ): { svgContent: string; error?: string } {
+  const safeColor = validateHexColor(style.color || '#000000');
+  const safeBg = style.backgroundColor === 'transparent' ? 'transparent' : validateHexColor(style.backgroundColor || 'transparent', '#ffffff');
+
   // Route any symbology with a non-null bwip-js BCID through renderBwipBarcodeSvg by default
   const bwipBcid = getBwipBcid(symbology);
   if (bwipBcid) {
     const bwipRes = renderBwipBarcodeSvg(symbology, data, {
-      fgColor: style.color || '#000000',
-      bgColor: style.backgroundColor
+      fgColor: safeColor,
+      bgColor: safeBg
     });
     if (bwipRes.svgContent) return bwipRes;
   }
@@ -856,8 +870,8 @@ export function render1DBarcodeSvg(
       fontSize: style.humanReadableSize || 13,
       textMargin: 3,
       margin: style.quietZone ? (style.quietZoneSize || 4) : 0,
-      background: style.backgroundColor || 'transparent',
-      lineColor: style.color || '#000000',
+      background: safeBg,
+      lineColor: safeColor,
       width: Math.max(1.2, (widthMm / 50)),
       height: Math.max(24, heightMm * 2.2),
       valid: (valid) => {

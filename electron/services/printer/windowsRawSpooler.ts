@@ -65,6 +65,31 @@ export class WindowsRawSpoolerService {
       };
     }
 
+    // Validate printerName against discovered system printers list as a defense-in-depth step
+    if (process.platform === 'win32') {
+      try {
+        const { stdout } = await execFileAsync('powershell', [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-Command',
+          'Get-CimInstance Win32_Printer | Select-Object -ExpandProperty Name'
+        ]);
+        const systemPrinters = stdout.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
+        if (systemPrinters.length > 0 && !systemPrinters.includes(printerName)) {
+          return {
+            success: false,
+            printerName,
+            bytesWritten: 0,
+            errorCode: 'ERR_PRINTER_NOT_FOUND',
+            errorMessage: `Target printer "${printerName}" was not found among installed system printers.`
+          };
+        }
+      } catch (err: any) {
+        logger.warn('WindowsRawSpoolerService', `Could not fetch installed system printers for validation: ${err.message}`);
+      }
+    }
+
     const jobId = `raw-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const tempPrnFile = path.join(this.spoolDir, `${jobId}.prn`);
 
@@ -89,9 +114,9 @@ export class WindowsRawSpoolerService {
       try {
         const psScript = `
 $ErrorActionPreference = 'Stop'
-$printer = ${JSON.stringify(printerName)}
-$filePath = ${JSON.stringify(tempPrnFile)}
-$docTitle = ${JSON.stringify(jobName)}
+$printer = $args[0]
+$filePath = $args[1]
+$docTitle = $args[2]
 
 $code = @"
 using System;
@@ -161,7 +186,7 @@ if ($res) {
         fs.writeFileSync(psFile, psScript, 'utf-8');
 
         try {
-          const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile], {
+          const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile, printerName, tempPrnFile, jobName], {
             timeout: 10000
           });
 
