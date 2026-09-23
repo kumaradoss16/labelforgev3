@@ -12,7 +12,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { LabelDocument } from '../../types/label';
-import { PrinterProfile, PrintJob, UserRole, BarTenderTemplateMetadata } from '../../types/printer';
+import { PrinterProfile, PrintJob, UserRole, BarTenderTemplateMetadata, VIRTUAL_FALLBACK_PRINTER } from '../../types/printer';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { runPreflightValidation } from '../../services/preflightValidator';
 import {
@@ -22,6 +22,7 @@ import { isDesktopApp, desktopPrintLabel } from '../../services/desktopBridge';
 import { generatePrinterCode } from '../../services/printerCodeGenerator';
 import { resolveIPCPrinterType } from '../../services/printerLanguageMapper';
 import { extractNetworkHostPort } from '../../services/printQueueManager';
+import { useIdentity } from '../../context/IdentityContext';
 
 interface PrintModalProps {
   isOpen: boolean;
@@ -52,6 +53,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const { identity } = useIdentity();
+
   const [copies, setCopies] = useState(1);
   const [recordRange, setRecordRange] = useState<'current' | 'all' | 'range'>('current');
   const [rangeStart, setRangeStart] = useState(1);
@@ -71,8 +74,8 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     Destination_Hub: 'Frankfurt Central Hub (FRA-02)',
   });
 
-  const activePrinter = printers.find(p => p.id === activePrinterId) || printers[0];
-  const fallbackPrinter = printers.find(p => p.id === activePrinter.fallbackPrinterId);
+  const activePrinter = printers.find(p => p.id === activePrinterId) || printers[0] || VIRTUAL_FALLBACK_PRINTER;
+  const fallbackPrinter = activePrinter.fallbackPrinterId ? printers.find(p => p.id === activePrinter.fallbackPrinterId) : undefined;
 
   // Validation
   const diagnostics = runPreflightValidation(doc);
@@ -136,9 +139,9 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             jobNumber: `PJ-${jobId.slice(-6)}`,
             jobType: 'ON_DEMAND',
             jobName: `${doc.name} - Native Desktop`,
-            requestedByUserId: 'usr-current',
-            requestedByUserName: activeRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
-            userRole: activeRole,
+            requestedByUserId: identity.userId,
+            requestedByUserName: identity.userName,
+            userRole: identity.role,
             templateId: barTenderTemplate?.id || doc.id,
             templateName: doc.name,
             templateVersion: doc.metadata?.version || 1,
@@ -195,9 +198,9 @@ export const PrintModal: React.FC<PrintModalProps> = ({
         jobNumber: `PJ-${jobId.split('-')[2]}`,
         jobType: 'ON_DEMAND',
         jobName: `${doc.name} (Web Preview)`,
-        requestedByUserId: 'usr-current',
-        requestedByUserName: activeRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
-        userRole: activeRole,
+        requestedByUserId: identity.userId,
+        requestedByUserName: identity.userName,
+        userRole: identity.role,
         templateId: barTenderTemplate?.id || doc.id,
         templateName: doc.name,
         templateVersion: doc.metadata?.version || 1,

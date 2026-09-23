@@ -2,6 +2,7 @@
  * LabelForge Real Barcode Engine powered by bwip-js and ISO encoders
  */
 
+// @ts-ignore
 import bwipjs from 'bwip-js';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
@@ -579,6 +580,27 @@ export function parseGS1ApplicationIdentifiers(input: string): {
 export function getBwipBcid(symbology: BarcodeSymbology | string): string | null {
   const s = symbology.toLowerCase();
   switch (s) {
+    case 'qr':
+    case 'gs1-qr':
+      return 'qrcode';
+    case 'code128':
+      return 'code128';
+    case 'gs1-128':
+      return 'gs1128';
+    case 'code39':
+      return 'code39';
+    case 'code93':
+      return 'code93';
+    case 'ean13':
+      return 'ean13';
+    case 'ean8':
+      return 'ean8';
+    case 'upca':
+      return 'upca';
+    case 'upce':
+      return 'upce';
+    case 'itf14':
+      return 'itf14';
     case 'datamatrix':
     case 'data-matrix':
       return 'datamatrix';
@@ -610,7 +632,7 @@ export function getBwipBcid(symbology: BarcodeSymbology | string): string | null
       return 'code11';
     case 'industrial2of5':
     case 'i2of5':
-      return 'interleaved2of5';
+      return 'industrial2of5';
     case 'matrix2of5':
       return 'matrix2of5';
     case 'telepen':
@@ -696,19 +718,37 @@ export function renderBwipBarcodeSvg(
   options?: { fgColor?: string; bgColor?: string; height?: number; scale?: number }
 ): { svgContent: string; error?: string } {
   try {
-    const bcid = getBwipBcid(symbology);
+    let bcid = getBwipBcid(symbology);
     if (!bcid) {
       return { svgContent: '', error: `Unsupported bwip-js symbology: ${symbology}` };
     }
 
-    const svgStr = bwipjs.toSVG({
-      bcid,
-      text: data,
-      scale: options?.scale || 3,
-      height: options?.height || 15,
-      barcolor: options?.fgColor ? options.fgColor.replace('#', '') : '000000',
-      backgroundcolor: options?.bgColor && options.bgColor !== 'transparent' ? options.bgColor.replace('#', '') : undefined
-    });
+    let textToRender = data;
+    let svgStr = '';
+
+    try {
+      svgStr = bwipjs.toSVG({
+        bcid,
+        text: textToRender,
+        scale: options?.scale || 3,
+        height: options?.height || 15,
+        barcolor: options?.fgColor ? options.fgColor.replace('#', '') : '000000',
+        backgroundcolor: options?.bgColor && options.bgColor !== 'transparent' ? options.bgColor.replace('#', '') : undefined
+      });
+    } catch (bwipErr) {
+      if (bcid === 'gs1128') {
+        svgStr = bwipjs.toSVG({
+          bcid: 'code128',
+          text: textToRender,
+          scale: options?.scale || 3,
+          height: options?.height || 15,
+          barcolor: options?.fgColor ? options.fgColor.replace('#', '') : '000000',
+          backgroundcolor: options?.bgColor && options.bgColor !== 'transparent' ? options.bgColor.replace('#', '') : undefined
+        });
+      } else {
+        throw bwipErr;
+      }
+    }
 
     return { svgContent: svgStr };
   } catch (err: any) {
@@ -736,9 +776,9 @@ export function render1DBarcodeSvg(
   widthMm: number,
   heightMm: number
 ): { svgContent: string; error?: string } {
-  // Check if bwip-js has specialized handler for this symbology
+  // Route any symbology with a non-null bwip-js BCID through renderBwipBarcodeSvg by default
   const bwipBcid = getBwipBcid(symbology);
-  if (bwipBcid && ['code11', 'matrix2of5', 'telepen', 'msi', 'onecode', 'royalmail', 'auspost', 'japanpost', 'kix'].includes(bwipBcid)) {
+  if (bwipBcid) {
     const bwipRes = renderBwipBarcodeSvg(symbology, data, {
       fgColor: style.color || '#000000',
       bgColor: style.backgroundColor

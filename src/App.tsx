@@ -24,7 +24,7 @@ import { SaveAsTemplateModal } from './components/templates/SaveAsTemplateModal'
 
 // Types & Services
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle } from './types/label';
-import { PrinterProfile, PrintJob, PrintAuditLog, UserRole, BarTenderTemplateMetadata } from './types/printer';
+import { PrinterProfile, PrintJob, PrintAuditLog, UserRole, BarTenderTemplateMetadata, VIRTUAL_FALLBACK_PRINTER } from './types/printer';
 import { DataSourceDefinition, SerializationCounter } from './types/database';
 import { TemplateRecord } from './types/template';
 import { saveTemplate } from './services/templateStorage';
@@ -48,15 +48,21 @@ import {
   desktopGetRecentProjects,
   subscribeToDesktopMenu
 } from './services/desktopBridge';
+import { isDemoMode } from './services/environmentConfig';
+import { useIdentity } from './context/IdentityContext';
 
 export const App: React.FC = () => {
   // Document state with undo/redo and multi-document tabs
   const [openDocuments, setOpenDocuments] = useState<LabelDocument[]>(() => {
+    if (!isDemoMode()) return [];
     const validTemplates = (SAMPLE_TEMPLATES || []).filter(Boolean);
     return validTemplates.length > 0 ? validTemplates : [];
   });
   const [document, setDocument] = useState<LabelDocument>(() => {
-    return SAMPLE_TEMPLATES?.[0] || {
+    if (isDemoMode() && SAMPLE_TEMPLATES?.[0]) {
+      return SAMPLE_TEMPLATES[0];
+    }
+    return {
       id: 'doc-default',
       schemaVersion: '1.0.0',
       name: 'Default Label',
@@ -76,7 +82,7 @@ export const App: React.FC = () => {
         marginBottom: 2,
         cornerRadius: 1,
       },
-      metadata: { targetPrinter: 'prn-01', site: 'Main Facility', version: 1, status: 'draft' },
+      metadata: { targetPrinter: '', site: 'Main Facility', version: 1, status: 'draft' },
       objects: [],
     };
   });
@@ -114,18 +120,18 @@ export const App: React.FC = () => {
   const [isFocusMode, setIsFocusMode] = useState<boolean>(false);
 
   // Enterprise Hardware & Database State
-  const [printers, setPrinters] = useState<PrinterProfile[]>(SAMPLE_PRINTERS);
-  const [activePrinterId, setActivePrinterId] = useState<string>(SAMPLE_PRINTERS[0].id);
-  const [dataSources, setDataSources] = useState<DataSourceDefinition[]>(SAMPLE_DATA_SOURCES);
-  const [activeDataSourceId, setActiveDataSourceId] = useState<string>(SAMPLE_DATA_SOURCES[0].id);
+  const [printers, setPrinters] = useState<PrinterProfile[]>(() => isDemoMode() ? SAMPLE_PRINTERS : []);
+  const [activePrinterId, setActivePrinterId] = useState<string>(() => isDemoMode() && SAMPLE_PRINTERS[0] ? SAMPLE_PRINTERS[0].id : '');
+  const [dataSources, setDataSources] = useState<DataSourceDefinition[]>(() => isDemoMode() ? SAMPLE_DATA_SOURCES : []);
+  const [activeDataSourceId, setActiveDataSourceId] = useState<string>(() => isDemoMode() && SAMPLE_DATA_SOURCES[0] ? SAMPLE_DATA_SOURCES[0].id : '');
   const [activeRecordIndex, setActiveRecordIndex] = useState<number>(0);
   const [counter, setCounter] = useState<SerializationCounter>(SAMPLE_SERIAL_COUNTER);
 
   // Enterprise Role & BarTender Integration State
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('PRINT_MANAGER');
-  const [printJobs, setPrintJobs] = useState<PrintJob[]>(SAMPLE_PRINT_JOBS);
-  const [auditLogs, setAuditLogs] = useState<PrintAuditLog[]>(SAMPLE_AUDIT_LOGS);
-  const [barTenderTemplates, setBarTenderTemplates] = useState<BarTenderTemplateMetadata[]>(SAMPLE_BARTENDER_TEMPLATES);
+  const { identity, updateRole } = useIdentity();
+  const [printJobs, setPrintJobs] = useState<PrintJob[]>(() => isDemoMode() ? SAMPLE_PRINT_JOBS : []);
+  const [auditLogs, setAuditLogs] = useState<PrintAuditLog[]>(() => isDemoMode() ? SAMPLE_AUDIT_LOGS : []);
+  const [barTenderTemplates, setBarTenderTemplates] = useState<BarTenderTemplateMetadata[]>(() => isDemoMode() ? SAMPLE_BARTENDER_TEMPLATES : []);
   const [isBarTenderModalOpen, setIsBarTenderModalOpen] = useState(false);
 
   // Template Management & Workspace Mode
@@ -158,9 +164,9 @@ export const App: React.FC = () => {
     const auditLog: PrintAuditLog = {
       id: `LOG-${Date.now()}`,
       timestamp: new Date().toLocaleTimeString(),
-      userId: 'usr-01',
-      userName: currentUserRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
-      userRole: currentUserRole,
+      userId: identity.userId,
+      userName: identity.userName,
+      userRole: identity.role,
       action: 'SUBMIT_JOB',
       jobId: job.id,
       printerId: job.printerId,
@@ -168,6 +174,7 @@ export const App: React.FC = () => {
       templateName: job.templateName,
       result: 'SUCCESS',
       details: `Dispatched ${job.labelQuantity || job.copies} labels to ${job.printerName} via ${job.integrationMethod || 'BarTender Print Service'}. Handoff status: ${job.status}`,
+      ipAddress: identity.ipAddress,
     };
     setAuditLogs(prev => [auditLog, ...prev]);
     showToast(`Print Handoff Confirmed: Job ${job.id} dispatched to ${job.printerName}`);
@@ -206,7 +213,7 @@ export const App: React.FC = () => {
     });
   };
 
-  const activePrinter = printers.find(p => p.id === activePrinterId) || printers[0];
+  const activePrinter = printers.find(p => p.id === activePrinterId) || printers[0] || VIRTUAL_FALLBACK_PRINTER;
   const activeDataSource = dataSources.find(d => d.id === activeDataSourceId) || dataSources[0];
   const activeRecord = activeDataSource?.records[activeRecordIndex];
   const selectedObject = document.objects.find(o => o.id === selectedObjectId) || null;
@@ -962,7 +969,7 @@ export const App: React.FC = () => {
         onOpenBarTenderManager={() => setIsBarTenderModalOpen(true)}
         onOpenPrintHistory={() => setIsPrintHistoryModalOpen(true)}
         onOpenAbout={() => setIsAboutModalOpen(true)}
-        currentUserRole={currentUserRole}
+        currentUserRole={identity.role}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={historyPast.length > 0}
@@ -1209,7 +1216,7 @@ export const App: React.FC = () => {
         onSelectPrinter={setActivePrinterId}
         dataSource={activeDataSource}
         counter={counter}
-        currentUserRole={currentUserRole}
+        currentUserRole={identity.role}
         barTenderTemplate={barTenderTemplates[0]}
         onJobDispatched={handleJobDispatched}
       />
@@ -1225,8 +1232,8 @@ export const App: React.FC = () => {
         onAddAuditLog={(log) => setAuditLogs(prev => [log, ...prev])}
         barTenderTemplates={barTenderTemplates}
         onUpdateTemplates={setBarTenderTemplates}
-        currentUserRole={currentUserRole}
-        onChangeUserRole={setCurrentUserRole}
+        currentUserRole={identity.role}
+        onChangeUserRole={updateRole}
         activeDocument={document}
         onSelectPrinter={(id) => {
           setActivePrinterId(id);
@@ -1248,7 +1255,7 @@ export const App: React.FC = () => {
         }}
         onUpdatePrintJobs={setPrintJobs}
         onAddAuditLog={(log) => setAuditLogs(prev => [log, ...prev])}
-        currentUserRole={currentUserRole}
+        currentUserRole={identity.role}
         onShowToast={showToast}
         activeDocument={document}
       />

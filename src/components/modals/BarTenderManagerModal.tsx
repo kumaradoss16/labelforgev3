@@ -39,7 +39,8 @@ import {
   BarTenderTemplateMetadata,
   ReprintReason,
   PrintTechnology,
-  AuditAction
+  AuditAction,
+  PrintJobState
 } from '../../types/printer';
 import {
   BarTenderConfig,
@@ -47,12 +48,14 @@ import {
   BARTENDER_EDITION_COMPATIBILITY_MATRIX,
   checkUserPermission,
   validateBarcodeData,
-  formatBarTenderIntegrationPayload
+  formatBarTenderIntegrationPayload,
+  pingBarTenderService
 } from '../../services/barTenderPrintService';
 import { LabelDocument } from '../../types/label';
 import { isDesktopApp, desktopPrintLabel, desktopTestPrint } from '../../services/desktopBridge';
 import { resolveIPCPrinterType } from '../../services/printerLanguageMapper';
 import { getRealJobPayload, extractNetworkHostPort } from '../../services/printQueueManager';
+import { useIdentity } from '../../context/IdentityContext';
 
 interface BarTenderManagerModalProps {
   isOpen: boolean;
@@ -90,6 +93,8 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
   onSelectPrinter
 }) => {
   if (!isOpen) return null;
+
+  const { identity, updateRole } = useIdentity();
 
   const [activeTab, setActiveTab] = useState<ModalTab>('printers');
   const [config, setConfig] = useState<BarTenderConfig>(DEFAULT_BARTENDER_CONFIG);
@@ -219,16 +224,16 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     const log: PrintAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
       timestamp: new Date().toLocaleString(),
-      userId: currentUserRole === 'SYSTEM_ADMIN' ? 'usr-admin' : 'usr-current',
-      userName: currentUserRole === 'SYSTEM_ADMIN' ? 'System Administrator' : 'Operator',
-      userRole: currentUserRole,
+      userId: identity.userId,
+      userName: identity.userName,
+      userRole: identity.role,
       action: 'DEFAULT_PRINTER_CHANGED',
       entityType: 'Printer',
       entityId: printer.id,
       beforeValueJson: JSON.stringify({ defaultPrinter: previousDefault?.id || 'none' }),
       afterValueJson: JSON.stringify({ defaultPrinter: printer.id, printerName: printer.name }),
       result: 'SUCCESS',
-      ipAddress: '10.140.10.5',
+      ipAddress: identity.ipAddress,
     };
     onAddAuditLog(log);
     showToast(`"${printer.displayName || printer.name}" is now set as the enterprise default printer.`);
@@ -257,16 +262,16 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     const log: PrintAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
       timestamp: new Date().toLocaleString(),
-      userId: 'usr-admin',
-      userName: 'Administrator',
-      userRole: currentUserRole,
+      userId: identity.userId,
+      userName: identity.userName,
+      userRole: identity.role,
       action: nextState ? 'PRINTER_ENABLED' : 'PRINTER_DISABLED',
       entityType: 'Printer',
       entityId: printer.id,
       beforeValueJson: JSON.stringify({ isEnabled: printer.isEnabled }),
       afterValueJson: JSON.stringify({ isEnabled: nextState }),
       result: 'SUCCESS',
-      ipAddress: '10.140.10.5',
+      ipAddress: identity.ipAddress,
     };
     onAddAuditLog(log);
     showToast(
@@ -298,9 +303,9 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     const log: PrintAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
       timestamp: new Date().toLocaleString(),
-      userId: 'usr-admin',
-      userName: 'Administrator',
-      userRole: currentUserRole,
+      userId: identity.userId,
+      userName: identity.userName,
+      userRole: identity.role,
       action: 'PRINTER_CHANGED',
       entityType: 'Printer',
       entityId: fallbackModalPrinter.id,
@@ -313,7 +318,7 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
         priority: newPriority,
       }),
       result: 'SUCCESS',
-      ipAddress: '10.140.10.5',
+      ipAddress: identity.ipAddress,
     };
     onAddAuditLog(log);
     setFallbackModalPrinter(null);
@@ -365,9 +370,9 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       jobNumber: `TP-${Date.now().toString().slice(-6)}`,
       jobType: 'TEST_PRINT',
       jobName: `Diagnostic Test Print — ${testPrintTargetPrinter.name}`,
-      requestedByUserId: 'usr-admin',
-      requestedByUserName: 'Administrator',
-      userRole: currentUserRole,
+      requestedByUserId: identity.userId,
+      requestedByUserName: identity.userName,
+      userRole: identity.role,
       templateId: templateToUse?.id,
       templateName: templateToUse ? templateToUse.name : 'Hardware Diagnostic Template',
       templateVersion: 1,
@@ -398,9 +403,9 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     const log: PrintAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
       timestamp: new Date().toLocaleString(),
-      userId: 'usr-admin',
-      userName: 'Administrator',
-      userRole: currentUserRole,
+      userId: identity.userId,
+      userName: identity.userName,
+      userRole: identity.role,
       action: 'TEST_PRINT_DISPATCHED',
       entityType: 'Printer',
       entityId: testPrintTargetPrinter.id,
@@ -408,7 +413,7 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       afterValueJson: JSON.stringify({ jobId, status: statusVal }),
       result: dispatchSuccess ? 'SUCCESS' : 'FAILURE',
       errorMessage: dispatchError || undefined,
-      ipAddress: '10.140.10.5',
+      ipAddress: identity.ipAddress,
     };
     onAddAuditLog(log);
 
@@ -525,9 +530,9 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     const log: PrintAuditLog = {
       id: `AUD-${Date.now().toString().slice(-6)}`,
       timestamp: new Date().toLocaleString(),
-      userId: 'usr-current',
-      userName: currentUserRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
-      userRole: currentUserRole,
+      userId: identity.userId,
+      userName: identity.userName,
+      userRole: identity.role,
       action: 'PRINT_JOB_REPRINTED',
       entityType: 'PrintJob',
       entityId: newJobId,
@@ -541,7 +546,7 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       }),
       result: dispatchSuccess ? 'SUCCESS' : 'FAILURE',
       errorMessage: dispatchError || undefined,
-      ipAddress: '10.140.22.40',
+      ipAddress: identity.ipAddress,
     };
     onAddAuditLog(log);
 
@@ -550,6 +555,27 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       showToast(`Controlled reprint transmitted for Job #${reprintTargetJob.id} to ${targetPrinter.name}.`);
     } else {
       showToast(`Controlled reprint failed for Job #${reprintTargetJob.id}: ${dispatchError}`, 'error');
+    }
+  };
+
+  // Diagnostic ping handler
+  const [isPingingService, setIsPingingService] = useState(false);
+
+  const handlePingBarTenderDiagnostics = async () => {
+    setIsPingingService(true);
+    const res = await pingBarTenderService(config.serviceUrl);
+    setIsPingingService(false);
+
+    if (res.success) {
+      showToast(
+        `Pinged BarTender REST API endpoint (${res.url}): HTTP ${res.status} ${res.statusText || 'OK'} (Roundtrip: ${res.roundtripMs}ms). Service healthy.`,
+        'success'
+      );
+    } else {
+      showToast(
+        `BarTender Service Diagnostic Failed (${res.url}): ${res.errorMessage || 'Connection refused'} (Roundtrip: ${res.roundtripMs}ms).`,
+        'error'
+      );
     }
   };
 
@@ -1517,13 +1543,12 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
 
                 <div className="mt-4 pt-3 border-t border-[#292d3a] flex items-center justify-between">
                   <button
-                    onClick={() => {
-                      showToast('Pinged BarTender REST API endpoint: HTTP 200 OK (Roundtrip: 14ms). Spooler healthy.');
-                    }}
-                    className="px-3 py-1.5 rounded bg-[#252936] hover:bg-[#323748] text-gray-200 text-xs font-semibold flex items-center space-x-1.5"
+                    onClick={handlePingBarTenderDiagnostics}
+                    disabled={isPingingService}
+                    className="px-3 py-1.5 rounded bg-[#252936] hover:bg-[#323748] text-gray-200 text-xs font-semibold flex items-center space-x-1.5 disabled:opacity-50"
                   >
-                    <Activity className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Ping BarTender Service Diagnostics</span>
+                    <Activity className={`w-3.5 h-3.5 text-emerald-400 ${isPingingService ? 'animate-spin' : ''}`} />
+                    <span>{isPingingService ? 'Pinging BarTender Endpoint...' : 'Ping BarTender Service Diagnostics'}</span>
                   </button>
 
                   <button

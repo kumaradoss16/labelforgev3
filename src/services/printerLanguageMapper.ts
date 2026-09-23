@@ -50,7 +50,8 @@ export function resolveIPCPrinterType(profile?: Partial<PrinterProfile> | string
       return 'windows';
     default: {
       // Check profile model / manufacturer
-      const model = (profile.model || profile.name || '').toLowerCase();
+      const profileObj = typeof profile === 'string' ? {} : profile;
+      const model = ((profileObj as any).model || (profileObj as any).name || (typeof profile === 'string' ? profile : '')).toLowerCase();
       if (model.includes('tspl') || model.includes('tsc') || model.includes('citizen')) return 'tspl';
       if (model.includes('epl') || model.includes('2844')) return 'epl';
       if (model.includes('cpcl') || model.includes('qln') || model.includes('zq')) return 'cpcl';

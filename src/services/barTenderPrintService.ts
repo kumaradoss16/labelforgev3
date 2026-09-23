@@ -340,3 +340,53 @@ export function generateNativePrinterStream(
   }
   return generateZplFromDocument(doc, options);
 }
+
+export interface BarTenderPingResult {
+  success: boolean;
+  status?: number;
+  statusText?: string;
+  roundtripMs: number;
+  url: string;
+  errorMessage?: string;
+}
+
+/**
+ * Real diagnostic ping against configured BarTender REST service URL
+ */
+export async function pingBarTenderService(serviceUrl: string, timeoutMs = 5000): Promise<BarTenderPingResult> {
+  const startTime = Date.now();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const response = await fetch(serviceUrl, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'Accept': 'application/json, text/plain, */*'
+      }
+    }).finally(() => clearTimeout(timer));
+
+    const roundtripMs = Date.now() - startTime;
+    return {
+      success: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      roundtripMs,
+      url: serviceUrl,
+      errorMessage: response.ok ? undefined : `HTTP ${response.status} ${response.statusText}`
+    };
+  } catch (err: any) {
+    const roundtripMs = Date.now() - startTime;
+    let errorMessage = err?.message || 'Connection refused or server unreachable';
+    if (err?.name === 'AbortError') {
+      errorMessage = `Request timed out after ${timeoutMs}ms`;
+    }
+    return {
+      success: false,
+      roundtripMs,
+      url: serviceUrl,
+      errorMessage
+    };
+  }
+}

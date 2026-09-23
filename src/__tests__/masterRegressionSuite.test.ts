@@ -116,8 +116,8 @@ describe('LabelForge V3 Master Audit Regression Suite (Phases 1-6)', () => {
   describe('Phase 5: Intelligent Canvas Snap Engine', () => {
     it('5.1: Snaps to sibling center and edge alignment lines', () => {
       const result = computeIntelligentSnap({
-        draggedObj: { id: 'obj1', x: 10.2, y: 20, width: 30, height: 20 },
-        otherObjects: [{ id: 'obj2', x: 10, y: 50, width: 30, height: 20, visible: true }],
+        draggedObj: { id: 'obj1', x: 10.2, y: 20, width: 30, height: 20 } as any,
+        otherObjects: [{ id: 'obj2', x: 10, y: 50, width: 30, height: 20, visible: true } as any],
         canvasWidthMm: 100,
         canvasHeightMm: 100,
         thresholdMm: 1.5,

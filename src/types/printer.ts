@@ -75,6 +75,7 @@ export type PrintJobState =
   | 'CANCELLED'
   | 'RETRYING'
   | 'PARTIALLY_COMPLETED'
+  | 'TRANSMITTED'
   | 'STATUS_UNKNOWN';
 
 export type PrintJobType = 'ON_DEMAND' | 'BATCH' | 'TEST_PRINT' | 'REPRINT' | 'AUTOMATION';
@@ -115,6 +116,7 @@ export interface PrintJob {
   completedAt?: string;
   outputLanguage: PrinterLanguage;
   rawPayloadPreview?: string;
+  rawPayload?: string;
   integrationMethod?: string;
   integrationResponseSummary?: string;
   errorCode?: string;
@@ -228,4 +230,34 @@ export interface BarTenderTemplateMetadata {
   createdAt: string;
   updatedAt: string;
 }
+
+export const VIRTUAL_FALLBACK_PRINTER: PrinterProfile = {
+  id: 'prn-virtual-fallback',
+  name: 'Virtual PDF Document Printer',
+  displayName: 'Virtual PDF Document Printer',
+  model: 'PDF-GDI-Virtual',
+  manufacturer: 'Generic Windows',
+  location: 'Local Workspace Agent',
+  connectionType: 'Virtual Agent',
+  systemPrinterName: 'Virtual PDF Printer',
+  dpi: 300,
+  language: 'PDF',
+  connection: 'Virtual Agent',
+  address: '127.0.0.1:0',
+  status: 'Ready',
+  isEnabled: true,
+  isDefault: true,
+  priority: 1,
+  supportedLabelSizes: ['4x6 in (100x150mm)'],
+  supportedResolutions: [300],
+  supportedPrintTechnology: 'Laser',
+  supportsCutter: false,
+  supportsPeeler: false,
+  supportsRfid: false,
+  darkness: 10,
+  speed: 6,
+  mediaType: 'continuous',
+  notes: 'System default virtual printer used when no network or physical printers are configured.'
+};
+
 

@@ -38,12 +38,15 @@ import {
   MinusSquare,
   Radio
 } from 'lucide-react';
-import { PrintJob, PrinterProfile, UserRole, PrintAuditLog, PrintJobState } from '../../types/printer';
+import { PrintJob, PrinterProfile, UserRole, PrintAuditLog, PrintJobState, VIRTUAL_FALLBACK_PRINTER } from '../../types/printer';
 import { isDesktopApp, desktopPrintLabel } from '../../services/desktopBridge';
+import { resolveIPCPrinterType } from '../../services/printerLanguageMapper';
+import { extractNetworkHostPort } from '../../services/printQueueManager';
 import { PrintStatisticsDashboard } from './PrintStatisticsDashboard';
 import { JobLabelThumbnail } from './JobLabelThumbnail';
 import { JobTechnicalMetadataRow } from './JobTechnicalMetadataRow';
 import { LabelDocument } from '../../types/label';
+import { useIdentity } from '../../context/IdentityContext';
 
 interface BatchPrintHistoryModalProps {
   isOpen: boolean;
@@ -231,6 +234,8 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const { identity } = useIdentity();
+
   // View Mode: 'QUEUE' | 'PENDING_QUEUE' | 'STATISTICS'
   const [activeTab, setActiveTab] = useState<'QUEUE' | 'PENDING_QUEUE' | 'STATISTICS'>('QUEUE');
 
@@ -374,15 +379,16 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
       onAddAuditLog({
         id: `AUD-CANCEL-${Date.now().toString().slice(-6)}`,
         timestamp: new Date().toLocaleString(),
-        userId: 'usr-queue-mgr',
-        userName: currentUserRole === 'SYSTEM_ADMIN' ? 'System Administrator' : 'Production Operator',
-        userRole: currentUserRole || 'PRINT_MANAGER',
+        userId: identity.userId,
+        userName: identity.userName,
+        userRole: identity.role,
         action: 'PRINT_JOB_CANCELLED',
         entityType: 'PrintJob',
         entityId: job.id,
         beforeValueJson: JSON.stringify({ status: job.status, priority: job.priority || 'NORMAL' }),
         afterValueJson: JSON.stringify({ status: 'CANCELLED' }),
         result: 'SUCCESS',
+        ipAddress: identity.ipAddress,
         details: `Print job ${job.jobNumber || job.id} (${job.jobName}) was cancelled from the print queue.`
       });
     }
@@ -404,15 +410,16 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
       onAddAuditLog({
         id: `AUD-CANCEL-ALL-${Date.now().toString().slice(-6)}`,
         timestamp: new Date().toLocaleString(),
-        userId: 'usr-queue-mgr',
-        userName: currentUserRole === 'SYSTEM_ADMIN' ? 'System Administrator' : 'Production Operator',
-        userRole: currentUserRole || 'PRINT_MANAGER',
+        userId: identity.userId,
+        userName: identity.userName,
+        userRole: identity.role,
         action: 'PRINT_JOB_CANCELLED',
         entityType: 'PrintJobBatch',
         entityId: `BATCH-CANCEL-${pendingJobs.length}`,
         beforeValueJson: JSON.stringify({ count: pendingJobs.length }),
         afterValueJson: JSON.stringify({ status: 'CANCELLED' }),
         result: 'SUCCESS',
+        ipAddress: identity.ipAddress,
         details: `Cancelled all ${pendingJobs.length} pending spooler jobs in queue.`
       });
     }
@@ -437,15 +444,16 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
       onAddAuditLog({
         id: `AUD-PRIORITY-${Date.now().toString().slice(-6)}`,
         timestamp: new Date().toLocaleString(),
-        userId: 'usr-queue-mgr',
-        userName: currentUserRole === 'SYSTEM_ADMIN' ? 'System Administrator' : 'Production Operator',
-        userRole: currentUserRole || 'PRINT_MANAGER',
+        userId: identity.userId,
+        userName: identity.userName,
+        userRole: identity.role,
         action: 'PRINT_JOB_PRIORITY_CHANGED',
         entityType: 'PrintJob',
         entityId: job.id,
         beforeValueJson: JSON.stringify({ priority: oldPriority }),
         afterValueJson: JSON.stringify({ priority }),
         result: 'SUCCESS',
+        ipAddress: identity.ipAddress,
         details: `Priority for print job ${job.jobNumber || job.id} changed from ${oldPriority} to ${priority}.`
       });
     }
@@ -469,15 +477,16 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
       onAddAuditLog({
         id: `AUD-REORDER-${Date.now().toString().slice(-6)}`,
         timestamp: new Date().toLocaleString(),
-        userId: 'usr-queue-mgr',
-        userName: currentUserRole === 'SYSTEM_ADMIN' ? 'System Administrator' : 'Production Operator',
-        userRole: currentUserRole || 'PRINT_MANAGER',
+        userId: identity.userId,
+        userName: identity.userName,
+        userRole: identity.role,
         action: 'PRINT_JOB_REORDERED',
         entityType: 'PrintJob',
         entityId: jobId,
         beforeValueJson: JSON.stringify({ direction, oldPos: targetJob.queuePosition || 'N/A' }),
         afterValueJson: JSON.stringify({ direction }),
         result: 'SUCCESS',
+        ipAddress: identity.ipAddress,
         details: `Spooler queue reordered (${direction}) for job ${targetJob.jobNumber || targetJob.id}.`
       });
     }
@@ -584,7 +593,7 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
   }, [printJobs, selectedJobId, filteredJobs]);
 
   const selectedPrinterObj = useMemo(() => {
-    return printers.find((p) => p.id === reprintPrinterId) || printers[0];
+    return printers.find((p) => p.id === reprintPrinterId) || printers[0] || VIRTUAL_FALLBACK_PRINTER;
   }, [printers, reprintPrinterId]);
 
   // Track failed jobs in the currently filtered list
@@ -613,7 +622,7 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
 
       const targetPrinter = printers.find(
         (p) => p.id === (job.actualPrinterId || job.printerId)
-      ) || printers[0];
+      ) || printers[0] || VIRTUAL_FALLBACK_PRINTER;
 
       const payloadToSend =
         job.rawPayloadPreview ||
@@ -622,9 +631,12 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
 
       if (isDesktopApp() && targetPrinter) {
         try {
+          const network = extractNetworkHostPort(targetPrinter.address);
           const res = await desktopPrintLabel({
             printerName: targetPrinter.systemPrinterName || targetPrinter.name,
-            printerType: targetPrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+            printerType: resolveIPCPrinterType(targetPrinter),
+            networkHost: network.host,
+            networkPort: network.port,
             copies: job.copies || 1,
             rawPayload: payloadToSend,
             jobName: `[RETRY] ${job.jobName}`
@@ -717,7 +729,7 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
   const handleExecuteReprint = async () => {
     if (!reprintTargetJob) return;
 
-    const targetPrinter = printers.find((p) => p.id === reprintPrinterId) || printers[0];
+    const targetPrinter = printers.find((p) => p.id === reprintPrinterId) || printers[0] || VIRTUAL_FALLBACK_PRINTER;
     if (!targetPrinter) {
       if (onShowToast) onShowToast('Error: No target industrial printer selected.');
       return;
@@ -737,9 +749,12 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
     // 1. If running in Native Windows Electron Environment, trigger hardware bridge
     if (isDesktopApp()) {
       try {
+        const network = extractNetworkHostPort(targetPrinter.address);
         const desktopRes = await desktopPrintLabel({
           printerName: targetPrinter.systemPrinterName || targetPrinter.name,
-          printerType: targetPrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+          printerType: resolveIPCPrinterType(targetPrinter),
+          networkHost: network.host,
+          networkPort: network.port,
           copies: reprintCopies,
           rawPayload: payloadToSend,
           jobName: `[REPRINT] ${reprintTargetJob.jobName} - Batch`
@@ -938,9 +953,12 @@ export const BatchPrintHistoryModal: React.FC<BatchPrintHistoryModalProps> = ({
 
       if (isDesktopApp()) {
         try {
+          const network = extractNetworkHostPort(originalPrinter.address);
           const res = await desktopPrintLabel({
             printerName: originalPrinter.systemPrinterName || originalPrinter.name,
-            printerType: originalPrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+            printerType: resolveIPCPrinterType(originalPrinter),
+            networkHost: network.host,
+            networkPort: network.port,
             copies: copiesToSend,
             rawPayload: payloadToSend,
             jobName: `[BATCH-REPRINT] ${job.jobName}`

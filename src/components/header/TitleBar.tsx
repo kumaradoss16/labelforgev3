@@ -22,6 +22,7 @@ import {
   Bookmark
 } from 'lucide-react';
 import { isDesktopApp } from '../../services/desktopBridge';
+import { isDemoMode, setDemoModeOverride } from '../../services/environmentConfig';
 import { LabelForgeLogo } from '../common/LabelForgeLogo';
 
 interface TitleBarProps {
@@ -255,6 +256,24 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span>BarTender Online</span>
         </span>
+        {isDemoMode() ? (
+          <button
+            onClick={() => setDemoModeOverride(false)}
+            title="Running in Demo Mode with sample data. Click to switch to Production Mode."
+            className="flex items-center space-x-1 px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/50 text-amber-300 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-500/30 transition-colors"
+          >
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            <span>DEMO MODE</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setDemoModeOverride(true)}
+            title="Running in Production Mode (no sample data). Click to switch to Demo Mode."
+            className="flex items-center space-x-1 px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-400 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-900/60 transition-colors"
+          >
+            <span>PRODUCTION</span>
+          </button>
+        )}
         {isDesktopApp() ? (
           <span className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-blue-950/70 border border-blue-600/60 text-blue-300 text-[10px] font-mono">
             <Monitor className="w-3 h-3 text-blue-400" />
