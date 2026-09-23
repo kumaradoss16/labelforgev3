@@ -5,6 +5,7 @@
 
 import { PrintJob, PrintJobState, PrinterProfile } from '../types/printer';
 import { desktopPrintLabel, isDesktopApp } from './desktopBridge';
+import { resolveIPCPrinterType } from './printerLanguageMapper';
 
 export const PRINT_BATCH_SIZE = 25;
 export const MAX_QUEUE_RETENTION = 100;
@@ -25,15 +26,15 @@ export interface BatchPrintSummary {
 
 /**
  * Compacts completed or cancelled print jobs to free memory
- * Strips heavy payload previews and buffers once printed
+ * Strips heavy payload previews once printed while maintaining payload hash and reference integrity
  */
 export function compactPrintJobs(jobs: PrintJob[], maxRetain = MAX_QUEUE_RETENTION): PrintJob[] {
   // Retain only latest maxRetain jobs
   const sliced = jobs.slice(-maxRetain);
 
   return sliced.map((job, idx) => {
-    // If completed or cancelled and not in the most recent 10 jobs, compact payload
-    if ((job.status === 'COMPLETED' || job.status === 'CANCELLED') && idx < sliced.length - 10) {
+    // If completed or cancelled and not in the most recent 10 jobs, compact preview
+    if ((job.status === 'COMPLETED' || job.status === 'TRANSMITTED' || job.status === 'CANCELLED') && idx < sliced.length - 10) {
       if (job.rawPayloadPreview && job.rawPayloadPreview.length > 200) {
         return {
           ...job,
@@ -46,8 +47,35 @@ export function compactPrintJobs(jobs: PrintJob[], maxRetain = MAX_QUEUE_RETENTI
 }
 
 /**
+ * Extracts IP address / hostname and port from a printer profile address string
+ * e.g. "192.168.1.120:9100" -> { host: "192.168.1.120", port: 9100 }
+ */
+export function extractNetworkHostPort(address?: string): { host?: string; port?: number } {
+  if (!address) return {};
+  const cleaned = address.trim();
+  const match = cleaned.match(/^([a-zA-Z0-9\.\-]+)(?::(\d+))?$/);
+  if (match) {
+    return {
+      host: match[1],
+      port: match[2] ? parseInt(match[2], 10) : 9100
+    };
+  }
+  return {};
+}
+
+/**
  * Stream print jobs in chunks of PRINT_BATCH_SIZE to prevent browser / renderer heap exhaustion
  */
+export function getRealJobPayload(job: PrintJob): string {
+  if (job.rawPayload && !job.rawPayload.includes('[Buffer Released]')) {
+    return job.rawPayload;
+  }
+  if (job.rawPayloadPreview && !job.rawPayloadPreview.includes('[Buffer Released]')) {
+    return job.rawPayloadPreview;
+  }
+  return job.rawPayload || job.rawPayloadPreview || '';
+}
+
 export async function executeBatchPrint(
   jobs: PrintJob[],
   printers: PrinterProfile[],
@@ -80,19 +108,27 @@ export async function executeBatchPrint(
 
       if (isDesktopApp() && targetPrinter) {
         try {
+          const printerType = resolveIPCPrinterType(targetPrinter);
+          const network = extractNetworkHostPort(targetPrinter.address);
+
+          const payload = getRealJobPayload(job);
+
           const res = await desktopPrintLabel({
             printerName: targetPrinter.systemPrinterName || targetPrinter.name,
-            printerType: targetPrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+            printerType,
             copies: job.copies || 1,
-            rawPayload: job.rawPayloadPreview || '',
+            rawPayload: payload,
+            networkHost: network.host,
+            networkPort: network.port,
             jobName: job.jobName || `Job-${job.id}`
           });
 
           if (res.success) {
             succeeded++;
+            const finalStatus: PrintJobState = printerType === 'network' ? 'TRANSMITTED' : 'COMPLETED';
             const completedJob: PrintJob = {
               ...job,
-              status: 'COMPLETED',
+              status: finalStatus,
               completedAt: timestamp,
               error: undefined
             };
@@ -146,7 +182,7 @@ export async function executeBatchPrint(
 }
 
 /**
- * Retries all failed jobs from a print queue
+ * Retries all failed jobs from a print queue using the real un-truncated payload
  */
 export async function retryFailedPrintJobs(
   allJobs: PrintJob[],
@@ -175,19 +211,26 @@ export async function retryFailedPrintJobs(
 
     if (isDesktopApp() && targetPrinter) {
       try {
+        const printerType = resolveIPCPrinterType(targetPrinter);
+        const network = extractNetworkHostPort(targetPrinter.address);
+        const payload = getRealJobPayload(job);
+
         const res = await desktopPrintLabel({
           printerName: targetPrinter.systemPrinterName || targetPrinter.name,
-          printerType: targetPrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+          printerType,
           copies: job.copies || 1,
-          rawPayload: job.rawPayloadPreview || '',
+          rawPayload: payload,
+          networkHost: network.host,
+          networkPort: network.port,
           jobName: `Retry-${job.jobNumber || job.id}`
         });
 
         if (res.success) {
           succeeded++;
+          const finalStatus: PrintJobState = printerType === 'network' ? 'TRANSMITTED' : 'COMPLETED';
           jobsMap.set(job.id, {
             ...job,
-            status: 'COMPLETED',
+            status: finalStatus,
             completedAt: timestamp,
             retryCount: (job.retryCount || 0) + 1,
             error: undefined

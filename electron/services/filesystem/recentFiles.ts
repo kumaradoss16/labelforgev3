@@ -21,6 +21,15 @@ export class RecentProjectsService {
     return paths.getRecentFilePath();
   }
 
+  private ensureDirExists(file: string) {
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch {}
+    }
+  }
+
   public getRecent(): RecentProjectEntry[] {
     const file = this.getStoragePath();
     if (!fs.existsSync(file)) {
@@ -49,6 +58,9 @@ export class RecentProjectsService {
 
   public addRecent(filePath: string, labelName?: string): void {
     try {
+      const storagePath = this.getStoragePath();
+      this.ensureDirExists(storagePath);
+
       const current = this.getRecent();
       const normalized = path.normalize(filePath);
       const fileName = path.basename(normalized);
@@ -66,7 +78,7 @@ export class RecentProjectsService {
         ...filtered
       ].slice(0, appConfig.maxRecentProjects);
 
-      fs.writeFileSync(this.getStoragePath(), JSON.stringify(updated, null, 2), 'utf-8');
+      fs.writeFileSync(storagePath, JSON.stringify(updated, null, 2), 'utf-8');
       logger.info('RecentProjectsService', `Added recent file: ${normalized}`);
     } catch (err) {
       logger.error('RecentProjectsService', `Failed to update recent files: ${filePath}`, err);
@@ -75,7 +87,9 @@ export class RecentProjectsService {
 
   public clearRecent(): void {
     try {
-      fs.writeFileSync(this.getStoragePath(), JSON.stringify([]), 'utf-8');
+      const storagePath = this.getStoragePath();
+      this.ensureDirExists(storagePath);
+      fs.writeFileSync(storagePath, JSON.stringify([]), 'utf-8');
       logger.info('RecentProjectsService', 'Cleared recent projects list');
     } catch (err) {
       logger.error('RecentProjectsService', 'Failed to clear recent projects', err);

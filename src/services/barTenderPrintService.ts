@@ -39,7 +39,7 @@ export interface BarTenderConfig {
 export const DEFAULT_BARTENDER_CONFIG: BarTenderConfig = {
   integrationMode: 'REST_API',
   serviceUrl: 'http://127.0.0.1:5159/api/actions',
-  templateRoot: 'C:\\BarTender\\Templates',
+  templateRoot: './templates',
   printServerHost: 'PRINTSVR01.corp.internal',
   timeoutSeconds: 15,
   environmentName: 'Production Warehouse DC-01',
@@ -47,6 +47,7 @@ export const DEFAULT_BARTENDER_CONFIG: BarTenderConfig = {
   edition: 'Enterprise',
   version: '2026 (12.4.0)',
 };
+
 
 /**
  * BarTender Edition Compatibility Decision Table

@@ -1,36 +1,124 @@
 /**
  * LabelForge Desktop - Network Raw TCP Socket Printer Adapter
  * Securely transmits raw thermal payloads (ZPL, TSPL, EPL, CPCL, SBPL, DPL) over TCP port 9100 / custom port
+ * Includes robust SSRF and IP obfuscation protection
  */
 
 import net from 'net';
 import { PrinterAdapter, PrinterDefinition, PrintJobRequest, PrintJobResponse } from './printerAdapter';
 import { logger } from '../../utils/logger';
 
-// IP / Hostname Validation Regex
+// Standard Regex Patterns
 const IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
 const HOSTNAME_REGEX = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/;
 
+/**
+ * Parses numeric/hex/octal/decimal IP representations to standard IPv4 dotted decimal
+ */
+function normalizeToIPv4(host: string): string | null {
+  const clean = host.trim().toLowerCase();
+
+  // Hex representation: e.g. 0x7f000001
+  if (/^0x[0-9a-f]{8}$/.test(clean)) {
+    const num = parseInt(clean, 16);
+    return `${(num >> 24) & 255}.${(num >> 16) & 255}.${(num >> 8) & 255}.${num & 255}`;
+  }
+
+  // Pure integer / dword representation: e.g. 2130706433
+  if (/^\d{8,10}$/.test(clean)) {
+    const num = parseInt(clean, 10);
+    if (num >= 0 && num <= 4294967295) {
+      return `${(num >>> 24) & 255}.${(num >>> 16) & 255}.${(num >>> 8) & 255}.${num & 255}`;
+    }
+  }
+
+  // Octal dotted notation: e.g. 0177.0.0.1
+  if (/^0[0-7]{1,3}\.0[0-7]{1,3}\.0[0-7]{1,3}\.0[0-7]{1,3}$/.test(clean)) {
+    const parts = clean.split('.').map(p => parseInt(p, 8));
+    return parts.join('.');
+  }
+
+  if (IPV4_REGEX.test(clean)) {
+    return clean;
+  }
+
+  return null;
+}
+
+/**
+ * Validates network printer target host/port and blocks SSRF / malicious targets
+ */
 export function validateNetworkDestination(host?: string, port?: number): { valid: boolean; error?: string } {
   if (!host || typeof host !== 'string' || host.trim() === '') {
     return { valid: false, error: 'Network printer host IP or hostname is required' };
   }
 
-  const cleanHost = host.trim();
+  let cleanHost = host.trim().toLowerCase();
 
-  // Prevent path traversal / command injection characters in host
+  // Strip brackets from IPv6 host if present (e.g. [::1])
+  if (cleanHost.startsWith('[') && cleanHost.endsWith(']')) {
+    cleanHost = cleanHost.slice(1, -1);
+  }
+
+  // Command injection / path traversal prevention
   if (/[;&|`<>\$\\]/.test(cleanHost) || cleanHost.includes('..')) {
     return { valid: false, error: 'Invalid characters detected in printer hostname or IP address' };
   }
 
-  // If input is purely numeric octets separated by dots, check strict IPv4
+  // Block IPv6 Loopbacks
+  if (cleanHost === '::1' || cleanHost === '0:0:0:0:0:0:0:1' || cleanHost.startsWith('::ffff:127.')) {
+    return { valid: false, error: 'Restricted network destination: Loopback IPv6 addresses are not permitted.' };
+  }
+
+  // Normalize potential numeric/hex/octal IP
+  const normalizedIPv4 = normalizeToIPv4(cleanHost);
+  const ipToCheck = normalizedIPv4 || cleanHost;
+
+  // If host consists purely of digits and dots, it MUST be a valid IPv4 address
   if (/^[\d\.]+$/.test(cleanHost)) {
-    if (!IPV4_REGEX.test(cleanHost)) {
+    if (!IPV4_REGEX.test(ipToCheck)) {
       return { valid: false, error: `Invalid IP address or hostname format: "${cleanHost}"` };
     }
+  }
+
+  // Check IPv4 SSRF Targets
+  if (IPV4_REGEX.test(ipToCheck)) {
+
+    const octets = ipToCheck.split('.').map(Number);
+
+    // 0.0.0.0 / 8
+    if (octets[0] === 0) {
+      return { valid: false, error: 'Restricted network destination: 0.0.0.0 network is not a valid printer target.' };
+    }
+
+    // Loopback 127.0.0.0 / 8
+    if (octets[0] === 127) {
+      return { valid: false, error: 'Restricted network destination: Loopback 127.0.0.0/8 addresses are not permitted.' };
+    }
+
+    // Cloud Metadata Services: 169.254.169.254, 169.254.169.250
+    if (octets[0] === 169 && octets[1] === 254 && octets[2] === 169) {
+      return { valid: false, error: 'Restricted network destination: Cloud metadata endpoint (169.254.169.x) is strictly blocked.' };
+    }
+
+    // Multicast 224.0.0.0 / 4
+    if (octets[0] >= 224 && octets[0] <= 239) {
+      return { valid: false, error: 'Restricted network destination: Multicast addresses are not valid printer targets.' };
+    }
+
+    // Limited Broadcast 255.255.255.255
+    if (ipToCheck === '255.255.255.255') {
+      return { valid: false, error: 'Restricted network destination: Broadcast address is not a valid printer target.' };
+    }
   } else {
+    // Check hostname format
     if (!HOSTNAME_REGEX.test(cleanHost)) {
       return { valid: false, error: `Invalid IP address or hostname format: "${cleanHost}"` };
+    }
+
+    // Block explicit localhost names
+    if (cleanHost === 'localhost' || cleanHost.endsWith('.localhost')) {
+      return { valid: false, error: 'Restricted network destination: Localhost is not a valid network printer target.' };
     }
   }
 
@@ -76,7 +164,7 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
 
     const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, 'utf-8');
 
-    // Max payload check (e.g., 20 MB safety limit)
+    // Max payload check (20 MB safety limit)
     if (buffer.length > 20 * 1024 * 1024) {
       return {
         success: false,
@@ -110,7 +198,6 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
       socket.on('close', () => {
         if (!hasFinished) {
           hasFinished = true;
-          // IMPORTANT semantics: socket close means SENT to print server/buffer, not physical completion
           resolve({
             success: true,
             jobId: `net-${Date.now()}`,

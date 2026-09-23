@@ -2,34 +2,26 @@ import React, { useState } from 'react';
 import {
   X,
   Printer,
-  FileText,
   Copy,
   Download,
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
-  Eye,
-  Layers,
-  Settings,
-  Sliders,
-  ArrowRightLeft,
   Server,
-  Barcode,
   Info,
   ShieldAlert
 } from 'lucide-react';
 import { LabelDocument } from '../../types/label';
 import { PrinterProfile, PrintJob, UserRole, BarTenderTemplateMetadata } from '../../types/printer';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
-import { generateZplFromDocument } from '../../services/zplGenerator';
-import { generateTsplFromDocument, generateEplFromDocument } from '../../services/tsplGenerator';
 import { runPreflightValidation } from '../../services/preflightValidator';
 import {
   checkUserPermission,
-  validateBarcodeData,
-  formatBarTenderIntegrationPayload
 } from '../../services/barTenderPrintService';
 import { isDesktopApp, desktopPrintLabel } from '../../services/desktopBridge';
+import { generatePrinterCode } from '../../services/printerCodeGenerator';
+import { resolveIPCPrinterType } from '../../services/printerLanguageMapper';
+import { extractNetworkHostPort } from '../../services/printQueueManager';
 
 interface PrintModalProps {
   isOpen: boolean;
@@ -90,13 +82,13 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const isPrinterOffline = activePrinter.status === 'Offline' || activePrinter.isEnabled === false;
   const permission = checkUserPermission(activeRole, 'PRINT', activePrinter);
 
-  // Generate authentic raw printer code based on printer language
-  const generatedCode =
-    activePrinter.language === 'TSPL'
-      ? generateTsplFromDocument(doc, { copies, darkness, speed })
-      : activePrinter.language === 'EPL'
-      ? generateEplFromDocument(doc, { copies, darkness, speed })
-      : generateZplFromDocument(doc, { copies, darkness, speed });
+  // Generate authentic raw printer code based on printer language using unified generator
+  let generatedCode = '';
+  try {
+    generatedCode = generatePrinterCode(activePrinter.language || 'ZPL', doc, { copies, darkness, speed });
+  } catch {
+    generatedCode = `^XA\n^FO50,50^A0N,36,36^FD${doc.name}^FS\n^XZ`;
+  }
 
   const totalRecordsToPrint =
     recordRange === 'current'
@@ -115,21 +107,26 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     setIsSubmitting(true);
     setDispatchSuccess(null);
 
+    const printerType = resolveIPCPrinterType(activePrinter);
+    const network = extractNetworkHostPort(activePrinter.address);
+
     if (isDesktopApp()) {
       desktopPrintLabel({
         printerName: activePrinter.systemPrinterName || activePrinter.name,
-        printerType: activePrinter.language === 'TSPL' ? 'tspl' : 'zpl',
+        printerType,
         copies,
         rawPayload: generatedCode,
+        networkHost: network.host,
+        networkPort: network.port,
         jobName: `${doc.name} - Batch`
       }).then(res => {
         setIsSubmitting(false);
         const jobId = res.jobId || `JOB-${Math.floor(100000 + Math.random() * 900000)}`;
         setDispatchSuccess({
           id: jobId,
-          status: res.success ? 'SENT_TO_PRINT_SERVICE' : 'DEVICE_ERROR',
+          status: res.success ? (printerType === 'network' ? 'TRANSMITTED' : 'SENT_TO_PRINT_SERVICE') : 'DEVICE_ERROR',
           note: res.success
-            ? `NATIVE DISPATCH SUCCESS — Dispatched ${res.bytesWritten || generatedCode.length} bytes to ${activePrinter.name} (Windows Queue / Port 9100)`
+            ? `NATIVE DISPATCH SUCCESS — Transmitted ${res.bytesWritten || generatedCode.length} bytes to ${activePrinter.name} (${printerType})`
             : `DISPATCH FAILED: ${res.error?.message || 'Printer rejected job'}`
         });
 
@@ -144,7 +141,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             userRole: activeRole,
             templateId: barTenderTemplate?.id || doc.id,
             templateName: doc.name,
-            templateVersion: doc.metadata.version || 1,
+            templateVersion: doc.metadata?.version || 1,
             printerId: activePrinter.id,
             printerName: activePrinter.displayName || activePrinter.name,
             requestedPrinterId: activePrinter.id,
@@ -155,7 +152,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             recordCount: totalRecordsToPrint,
             labelQuantity: totalLabels,
             labelDataJson: templateVariables,
-            status: 'SENT_TO_PRINT_SERVICE',
+            status: printerType === 'network' ? 'TRANSMITTED' : 'SENT_TO_PRINT_SERVICE',
             createdAt: new Date().toLocaleTimeString(),
             sentAt: new Date().toLocaleTimeString(),
             outputLanguage: activePrinter.language,
@@ -169,8 +166,9 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             darkness: activePrinter.darkness,
             printTechnology: activePrinter.supportedPrintTechnology || 'Thermal transfer',
             mediaType: activePrinter.mediaType || 'gap',
+            rawPayload: generatedCode,
             rawPayloadPreview: generatedCode.slice(0, 500),
-            integrationMethod: 'Electron Native Thermal Port (Port 9100 / Spooler)',
+            integrationMethod: `Electron Native Thermal Port (${printerType})`,
             integrationResponseSummary: 'Direct native hardware handoff verified',
             retryCount: 0,
           };
@@ -180,12 +178,11 @@ export const PrintModal: React.FC<PrintModalProps> = ({
       return;
     }
 
-    // Simulate enterprise BarTender service handoff in web mode
+    // Web preview mode notice
     setTimeout(() => {
       setIsSubmitting(false);
-      const jobId = `JOB-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      const handoffNote = `PRINT HANDOFF CONFIRMED — Spooler job received by BarTender Print Service for queue "${activePrinter.systemPrinterName || activePrinter.name}".`;
+      const jobId = `JOB-WEB-${Math.floor(100000 + Math.random() * 900000)}`;
+      const handoffNote = `WEB PREVIEW — Simulated spooler dispatch for "${activePrinter.name}". Run in Electron desktop app for real hardware printing.`;
 
       setDispatchSuccess({
         id: jobId,
@@ -195,15 +192,15 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
       const job: PrintJob = {
         id: jobId,
-        jobNumber: `PJ-${jobId.split('-')[1]}`,
+        jobNumber: `PJ-${jobId.split('-')[2]}`,
         jobType: 'ON_DEMAND',
-        jobName: `${doc.name} - Batch #${jobId.split('-')[1]}`,
+        jobName: `${doc.name} (Web Preview)`,
         requestedByUserId: 'usr-current',
         requestedByUserName: activeRole === 'SYSTEM_ADMIN' ? 'Administrator' : 'Operator',
         userRole: activeRole,
         templateId: barTenderTemplate?.id || doc.id,
         templateName: doc.name,
-        templateVersion: doc.metadata.version || 1,
+        templateVersion: doc.metadata?.version || 1,
         printerId: activePrinter.id,
         printerName: activePrinter.displayName || activePrinter.name,
         requestedPrinterId: activePrinter.id,
@@ -219,23 +216,16 @@ export const PrintModal: React.FC<PrintModalProps> = ({
         sentAt: new Date().toLocaleTimeString(),
         outputLanguage: activePrinter.language,
         dpi: activePrinter.dpi,
-        paperSize: `${doc.dimensions.width} × ${doc.dimensions.height} mm (${(doc.dimensions.width / 25.4).toFixed(1)}" × ${(doc.dimensions.height / 25.4).toFixed(1)}")`,
-        inkLevel: 82,
-        ribbonLevel: 82,
-        mediaRollRemaining: 75,
-        printheadHealth: 99,
-        printSpeed: activePrinter.speed,
-        darkness: activePrinter.darkness,
-        printTechnology: activePrinter.supportedPrintTechnology || 'Thermal transfer',
-        mediaType: activePrinter.mediaType || 'gap',
+        paperSize: `${doc.dimensions.width} × ${doc.dimensions.height} mm`,
+        rawPayload: generatedCode,
         rawPayloadPreview: generatedCode.slice(0, 500),
-        integrationMethod: 'BarTender REST API (v1/print)',
+        integrationMethod: 'Web Preview Engine',
         integrationResponseSummary: handoffNote,
         retryCount: 0,
       };
 
       onJobDispatched(job);
-    }, 800);
+    }, 400);
   };
 
   const handleBrowserPrint = () => {
@@ -243,7 +233,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   };
 
   const handleDownloadCode = () => {
-    const ext = activePrinter.language === 'TSPL' ? 'tspl' : activePrinter.language === 'EPL' ? 'epl' : 'zpl';
+    const ext = (activePrinter.language || 'zpl').toLowerCase();
     const blob = new Blob([generatedCode], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = window.document.createElement('a');
@@ -604,7 +594,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                   </span>
                 </div>
                 <span className="text-[10px] font-mono bg-emerald-900/80 px-2 py-0.5 rounded font-bold uppercase shrink-0">
-                  SENT TO PRINT SERVICE
+                  {dispatchSuccess.status}
                 </span>
               </div>
             )}
@@ -658,4 +648,3 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     </div>
   );
 };
-

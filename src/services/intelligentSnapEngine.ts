@@ -38,8 +38,7 @@ export interface IntelligentSnapResult {
 
 /**
  * Intelligent Object Snapping Engine
- * Calculates center-line alignments of dragged elements with adjacent sibling elements on the canvas.
- * If within the snapping threshold, it snaps the element to the center line and generates visual alignment guides.
+ * Calculates center & edge alignments of dragged elements with adjacent sibling elements and canvas bounds.
  */
 export function computeIntelligentSnap({
   draggedObj,
@@ -68,6 +67,8 @@ export function computeIntelligentSnap({
 
   const draggedCenterX = draggedObj.x + draggedObj.width / 2;
   const draggedCenterY = draggedObj.y + draggedObj.height / 2;
+  const draggedRight = draggedObj.x + draggedObj.width;
+  const draggedBottom = draggedObj.y + draggedObj.height;
 
   // Filter valid candidate objects (visible, non-dragged)
   const candidates = otherObjects.filter(
@@ -75,138 +76,311 @@ export function computeIntelligentSnap({
   );
 
   // -------------------------------------------------------------
-  // 1. Horizontal Center-to-Center Alignment (Vertical Line along X)
+  // 1. Horizontal Snapping (X-axis alignment, vertical line)
   // -------------------------------------------------------------
   let bestXDiff = thresholdMm + 0.0001;
-  let bestXTarget: {
-    centerX: number;
-    centerY: number;
-    name: string;
-    y: number;
-    height: number;
+  let bestXSnap: {
+    snappedObjX: number;
+    guidePositionX: number;
+    targetY: number;
+    targetHeight: number;
+    targetName: string;
     isCanvas?: boolean;
   } | null = null;
 
-  // Check candidate adjacent elements
+  // Check candidate objects
   for (const other of candidates) {
     const otherCenterX = other.x + other.width / 2;
-    const diff = Math.abs(draggedCenterX - otherCenterX);
-    if (diff <= thresholdMm && diff < bestXDiff) {
-      bestXDiff = diff;
-      bestXTarget = {
-        centerX: otherCenterX,
-        centerY: other.y + other.height / 2,
-        name: other.name || 'Object',
-        y: other.y,
-        height: other.height,
+    const otherRight = other.x + other.width;
+
+    // Check Center-to-Center
+    const centerDiff = Math.abs(draggedCenterX - otherCenterX);
+    if (centerDiff <= thresholdMm && centerDiff < bestXDiff) {
+      bestXDiff = centerDiff;
+      bestXSnap = {
+        snappedObjX: otherCenterX - draggedObj.width / 2,
+        guidePositionX: otherCenterX,
+        targetY: other.y,
+        targetHeight: other.height,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Left-to-Left
+    const leftLeftDiff = Math.abs(draggedObj.x - other.x);
+    if (leftLeftDiff <= thresholdMm && leftLeftDiff < bestXDiff) {
+      bestXDiff = leftLeftDiff;
+      bestXSnap = {
+        snappedObjX: other.x,
+        guidePositionX: other.x,
+        targetY: other.y,
+        targetHeight: other.height,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Right-to-Right
+    const rightRightDiff = Math.abs(draggedRight - otherRight);
+    if (rightRightDiff <= thresholdMm && rightRightDiff < bestXDiff) {
+      bestXDiff = rightRightDiff;
+      bestXSnap = {
+        snappedObjX: otherRight - draggedObj.width,
+        guidePositionX: otherRight,
+        targetY: other.y,
+        targetHeight: other.height,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Left-to-Right
+    const leftRightDiff = Math.abs(draggedObj.x - otherRight);
+    if (leftRightDiff <= thresholdMm && leftRightDiff < bestXDiff) {
+      bestXDiff = leftRightDiff;
+      bestXSnap = {
+        snappedObjX: otherRight,
+        guidePositionX: otherRight,
+        targetY: other.y,
+        targetHeight: other.height,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Right-to-Left
+    const rightLeftDiff = Math.abs(draggedRight - other.x);
+    if (rightLeftDiff <= thresholdMm && rightLeftDiff < bestXDiff) {
+      bestXDiff = rightLeftDiff;
+      bestXSnap = {
+        snappedObjX: other.x - draggedObj.width,
+        guidePositionX: other.x,
+        targetY: other.y,
+        targetHeight: other.height,
+        targetName: other.name || 'Object',
         isCanvas: false,
       };
     }
   }
 
-  // Check canvas horizontal center line
+  // Check Canvas Center & Edges
   if (snapToCanvasCenter) {
     const canvasCenterX = canvasWidthMm / 2;
-    const diff = Math.abs(draggedCenterX - canvasCenterX);
-    if (diff <= thresholdMm && diff < bestXDiff) {
-      bestXDiff = diff;
-      bestXTarget = {
-        centerX: canvasCenterX,
-        centerY: canvasHeightMm / 2,
-        name: 'Canvas Center',
-        y: 0,
-        height: canvasHeightMm,
+    const centerDiff = Math.abs(draggedCenterX - canvasCenterX);
+    if (centerDiff <= thresholdMm && centerDiff < bestXDiff) {
+      bestXDiff = centerDiff;
+      bestXSnap = {
+        snappedObjX: canvasCenterX - draggedObj.width / 2,
+        guidePositionX: canvasCenterX,
+        targetY: 0,
+        targetHeight: canvasHeightMm,
+        targetName: 'Canvas Center',
+        isCanvas: true,
+      };
+    }
+
+    // Canvas Left Edge
+    const leftDiff = Math.abs(draggedObj.x - 0);
+    if (leftDiff <= thresholdMm && leftDiff < bestXDiff) {
+      bestXDiff = leftDiff;
+      bestXSnap = {
+        snappedObjX: 0,
+        guidePositionX: 0,
+        targetY: 0,
+        targetHeight: canvasHeightMm,
+        targetName: 'Canvas Left Edge',
+        isCanvas: true,
+      };
+    }
+
+    // Canvas Right Edge
+    const rightDiff = Math.abs(draggedRight - canvasWidthMm);
+    if (rightDiff <= thresholdMm && rightDiff < bestXDiff) {
+      bestXDiff = rightDiff;
+      bestXSnap = {
+        snappedObjX: canvasWidthMm - draggedObj.width,
+        guidePositionX: canvasWidthMm,
+        targetY: 0,
+        targetHeight: canvasHeightMm,
+        targetName: 'Canvas Right Edge',
         isCanvas: true,
       };
     }
   }
 
-  if (bestXTarget) {
-    snappedX = Number((bestXTarget.centerX - draggedObj.width / 2).toFixed(2));
+  if (bestXSnap) {
+    snappedX = Number(bestXSnap.snappedObjX.toFixed(2));
     hasSnappedX = true;
 
-    const sourceCenterY = draggedObj.y + draggedObj.height / 2;
-    const minY = Math.min(draggedObj.y, bestXTarget.y);
-    const maxY = Math.max(draggedObj.y + draggedObj.height, bestXTarget.y + bestXTarget.height);
+    const minY = Math.min(draggedObj.y, bestXSnap.targetY);
+    const maxY = Math.max(draggedObj.y + draggedObj.height, bestXSnap.targetY + bestXSnap.targetHeight);
 
     guides.push({
-      id: `snap-center-x-${bestXTarget.centerX}`,
+      id: `snap-x-${bestXSnap.guidePositionX}`,
       axis: 'x',
-      positionMm: bestXTarget.centerX,
+      positionMm: bestXSnap.guidePositionX,
       startMm: Math.max(0, minY - 2),
       endMm: Math.min(canvasHeightMm, maxY + 2),
-      sourceCenter: { x: bestXTarget.centerX, y: sourceCenterY },
-      targetCenter: { x: bestXTarget.centerX, y: bestXTarget.centerY },
-      targetName: bestXTarget.name,
-      isCanvasCenter: bestXTarget.isCanvas,
+      sourceCenter: { x: bestXSnap.guidePositionX, y: draggedObj.y + draggedObj.height / 2 },
+      targetCenter: { x: bestXSnap.guidePositionX, y: bestXSnap.targetY + bestXSnap.targetHeight / 2 },
+      targetName: bestXSnap.targetName,
+      isCanvasCenter: bestXSnap.isCanvas,
     });
   }
 
   // -------------------------------------------------------------
-  // 2. Vertical Center-to-Center Alignment (Horizontal Line along Y)
+  // 2. Vertical Snapping (Y-axis alignment, horizontal line)
   // -------------------------------------------------------------
   let bestYDiff = thresholdMm + 0.0001;
-  let bestYTarget: {
-    centerX: number;
-    centerY: number;
-    name: string;
-    x: number;
-    width: number;
+  let bestYSnap: {
+    snappedObjY: number;
+    guidePositionY: number;
+    targetX: number;
+    targetWidth: number;
+    targetName: string;
     isCanvas?: boolean;
   } | null = null;
 
-  // Check candidate adjacent elements
+  // Check candidate objects
   for (const other of candidates) {
     const otherCenterY = other.y + other.height / 2;
-    const diff = Math.abs(draggedCenterY - otherCenterY);
-    if (diff <= thresholdMm && diff < bestYDiff) {
-      bestYDiff = diff;
-      bestYTarget = {
-        centerX: other.x + other.width / 2,
-        centerY: otherCenterY,
-        name: other.name || 'Object',
-        x: other.x,
-        width: other.width,
+    const otherBottom = other.y + other.height;
+
+    // Check Center-to-Center
+    const centerDiff = Math.abs(draggedCenterY - otherCenterY);
+    if (centerDiff <= thresholdMm && centerDiff < bestYDiff) {
+      bestYDiff = centerDiff;
+      bestYSnap = {
+        snappedObjY: otherCenterY - draggedObj.height / 2,
+        guidePositionY: otherCenterY,
+        targetX: other.x,
+        targetWidth: other.width,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Top-to-Top
+    const topTopDiff = Math.abs(draggedObj.y - other.y);
+    if (topTopDiff <= thresholdMm && topTopDiff < bestYDiff) {
+      bestYDiff = topTopDiff;
+      bestYSnap = {
+        snappedObjY: other.y,
+        guidePositionY: other.y,
+        targetX: other.x,
+        targetWidth: other.width,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Bottom-to-Bottom
+    const bottomBottomDiff = Math.abs(draggedBottom - otherBottom);
+    if (bottomBottomDiff <= thresholdMm && bottomBottomDiff < bestYDiff) {
+      bestYDiff = bottomBottomDiff;
+      bestYSnap = {
+        snappedObjY: otherBottom - draggedObj.height,
+        guidePositionY: otherBottom,
+        targetX: other.x,
+        targetWidth: other.width,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Top-to-Bottom
+    const topBottomDiff = Math.abs(draggedObj.y - otherBottom);
+    if (topBottomDiff <= thresholdMm && topBottomDiff < bestYDiff) {
+      bestYDiff = topBottomDiff;
+      bestYSnap = {
+        snappedObjY: otherBottom,
+        guidePositionY: otherBottom,
+        targetX: other.x,
+        targetWidth: other.width,
+        targetName: other.name || 'Object',
+        isCanvas: false,
+      };
+    }
+
+    // Check Bottom-to-Top
+    const bottomTopDiff = Math.abs(draggedBottom - other.y);
+    if (bottomTopDiff <= thresholdMm && bottomTopDiff < bestYDiff) {
+      bestYDiff = bottomTopDiff;
+      bestYSnap = {
+        snappedObjY: other.y - draggedObj.height,
+        guidePositionY: other.y,
+        targetX: other.x,
+        targetWidth: other.width,
+        targetName: other.name || 'Object',
         isCanvas: false,
       };
     }
   }
 
-  // Check canvas vertical center line
+  // Check Canvas Center & Edges
   if (snapToCanvasCenter) {
     const canvasCenterY = canvasHeightMm / 2;
-    const diff = Math.abs(draggedCenterY - canvasCenterY);
-    if (diff <= thresholdMm && diff < bestYDiff) {
-      bestYDiff = diff;
-      bestYTarget = {
-        centerX: canvasWidthMm / 2,
-        centerY: canvasCenterY,
-        name: 'Canvas Center',
-        x: 0,
-        width: canvasWidthMm,
+    const centerDiff = Math.abs(draggedCenterY - canvasCenterY);
+    if (centerDiff <= thresholdMm && centerDiff < bestYDiff) {
+      bestYDiff = centerDiff;
+      bestYSnap = {
+        snappedObjY: canvasCenterY - draggedObj.height / 2,
+        guidePositionY: canvasCenterY,
+        targetX: 0,
+        targetWidth: canvasWidthMm,
+        targetName: 'Canvas Center',
+        isCanvas: true,
+      };
+    }
+
+    // Canvas Top Edge
+    const topDiff = Math.abs(draggedObj.y - 0);
+    if (topDiff <= thresholdMm && topDiff < bestYDiff) {
+      bestYDiff = topDiff;
+      bestYSnap = {
+        snappedObjY: 0,
+        guidePositionY: 0,
+        targetX: 0,
+        targetWidth: canvasWidthMm,
+        targetName: 'Canvas Top Edge',
+        isCanvas: true,
+      };
+    }
+
+    // Canvas Bottom Edge
+    const bottomDiff = Math.abs(draggedBottom - canvasHeightMm);
+    if (bottomDiff <= thresholdMm && bottomDiff < bestYDiff) {
+      bestYDiff = bottomDiff;
+      bestYSnap = {
+        snappedObjY: canvasHeightMm - draggedObj.height,
+        guidePositionY: canvasHeightMm,
+        targetX: 0,
+        targetWidth: canvasWidthMm,
+        targetName: 'Canvas Bottom Edge',
         isCanvas: true,
       };
     }
   }
 
-  if (bestYTarget) {
-    snappedY = Number((bestYTarget.centerY - draggedObj.height / 2).toFixed(2));
+  if (bestYSnap) {
+    snappedY = Number(bestYSnap.snappedObjY.toFixed(2));
     hasSnappedY = true;
 
-    const sourceCenterX = (hasSnappedX ? snappedX : draggedObj.x) + draggedObj.width / 2;
-    const minX = Math.min(hasSnappedX ? snappedX : draggedObj.x, bestYTarget.x);
-    const maxX = Math.max((hasSnappedX ? snappedX : draggedObj.x) + draggedObj.width, bestYTarget.x + bestYTarget.width);
+    const effX = hasSnappedX ? snappedX : draggedObj.x;
+    const minX = Math.min(effX, bestYSnap.targetX);
+    const maxX = Math.max(effX + draggedObj.width, bestYSnap.targetX + bestYSnap.targetWidth);
 
     guides.push({
-      id: `snap-center-y-${bestYTarget.centerY}`,
+      id: `snap-y-${bestYSnap.guidePositionY}`,
       axis: 'y',
-      positionMm: bestYTarget.centerY,
+      positionMm: bestYSnap.guidePositionY,
       startMm: Math.max(0, minX - 2),
       endMm: Math.min(canvasWidthMm, maxX + 2),
-      sourceCenter: { x: sourceCenterX, y: bestYTarget.centerY },
-      targetCenter: { x: bestYTarget.centerX, y: bestYTarget.centerY },
-      targetName: bestYTarget.name,
-      isCanvasCenter: bestYTarget.isCanvas,
+      sourceCenter: { x: effX + draggedObj.width / 2, y: bestYSnap.guidePositionY },
+      targetCenter: { x: bestYSnap.targetX + bestYSnap.targetWidth / 2, y: bestYSnap.guidePositionY },
+      targetName: bestYSnap.targetName,
+      isCanvasCenter: bestYSnap.isCanvas,
     });
   }
 

@@ -50,6 +50,9 @@ import {
   formatBarTenderIntegrationPayload
 } from '../../services/barTenderPrintService';
 import { LabelDocument } from '../../types/label';
+import { isDesktopApp, desktopPrintLabel, desktopTestPrint } from '../../services/desktopBridge';
+import { resolveIPCPrinterType } from '../../services/printerLanguageMapper';
+import { getRealJobPayload, extractNetworkHostPort } from '../../services/printQueueManager';
 
 interface BarTenderManagerModalProps {
   isOpen: boolean;
@@ -317,7 +320,7 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     showToast(`Updated failover routing and priority for ${fallbackModalPrinter.name}.`);
   };
 
-  const handleConfirmTestPrint = () => {
+  const handleConfirmTestPrint = async () => {
     if (!testPrintTargetPrinter) return;
     const perm = checkUserPermission(currentUserRole, 'TEST_PRINT', testPrintTargetPrinter);
     if (!perm.allowed) {
@@ -328,6 +331,34 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
 
     const templateToUse = barTenderTemplates[0];
     const jobId = `JOB-TEST-${Date.now().toString().slice(-6)}`;
+    const printerType = resolveIPCPrinterType(testPrintTargetPrinter);
+    const network = extractNetworkHostPort(testPrintTargetPrinter.address);
+
+    let dispatchSuccess = false;
+    let dispatchError = '';
+
+    if (isDesktopApp()) {
+      try {
+        const res = await desktopTestPrint(
+          testPrintTargetPrinter.systemPrinterName || testPrintTargetPrinter.name,
+          printerType === 'tspl' ? 'tspl' : 'zpl'
+        );
+        dispatchSuccess = res.success;
+        if (!res.success) {
+          dispatchError = res.error?.message || 'Printer failed test print response';
+        }
+      } catch (err: any) {
+        dispatchSuccess = false;
+        dispatchError = err.message || 'Test print IPC communication error';
+      }
+    } else {
+      // Web mode fallback
+      dispatchSuccess = true;
+    }
+
+    const statusVal: PrintJobState = dispatchSuccess
+      ? (printerType === 'network' ? 'TRANSMITTED' : 'COMPLETED')
+      : 'FAILED';
 
     const newJob: PrintJob = {
       id: jobId,
@@ -349,12 +380,15 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       copies: 1,
       recordCount: 1,
       labelQuantity: 1,
-      status: 'SENT_TO_PRINT_SERVICE',
+      status: statusVal,
       createdAt: new Date().toLocaleString(),
       sentAt: new Date().toLocaleString(),
       outputLanguage: testPrintTargetPrinter.language,
       integrationMethod: `BarTender ${config.integrationMode} Test Handoff`,
-      integrationResponseSummary: `PRINT HANDOFF CONFIRMED — Diagnostics transferred to spooler "${testPrintTargetPrinter.systemPrinterName || testPrintTargetPrinter.name}".`,
+      integrationResponseSummary: dispatchSuccess
+        ? `Diagnostic payload transmitted to ${testPrintTargetPrinter.systemPrinterName || testPrintTargetPrinter.name}`
+        : `TEST PRINT FAILED: ${dispatchError}`,
+      error: dispatchError || undefined,
       retryCount: 0,
       auditReference: `AUD-${Date.now().toString().slice(-6)}`,
     };
@@ -371,14 +405,19 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       entityType: 'Printer',
       entityId: testPrintTargetPrinter.id,
       beforeValueJson: JSON.stringify({ printerStatus: testPrintTargetPrinter.status }),
-      afterValueJson: JSON.stringify({ jobId, status: 'SENT_TO_PRINT_SERVICE' }),
-      result: 'SUCCESS',
+      afterValueJson: JSON.stringify({ jobId, status: statusVal }),
+      result: dispatchSuccess ? 'SUCCESS' : 'FAILURE',
+      errorMessage: dispatchError || undefined,
       ipAddress: '10.140.10.5',
     };
     onAddAuditLog(log);
 
     setTestPrintTargetPrinter(null);
-    showToast(`Test print dispatched to ${testPrintTargetPrinter.name} (PRINT HANDOFF CONFIRMED).`);
+    if (dispatchSuccess) {
+      showToast(`Test print transmitted to ${testPrintTargetPrinter.name}.`);
+    } else {
+      showToast(`Test print failed for ${testPrintTargetPrinter.name}: ${dispatchError}`, 'error');
+    }
   };
 
   // --------------------------------------------------------------------------
@@ -398,7 +437,7 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     setReprintCustomNote('');
   };
 
-  const handleConfirmReprint = () => {
+  const handleConfirmReprint = async () => {
     if (!reprintTargetJob) return;
 
     const targetPrinter = printers.find(p => p.id === reprintPrinterId) || printers[0];
@@ -409,6 +448,41 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
     }
 
     const newJobId = `JOB-RP-${Date.now().toString().slice(-6)}`;
+    const printerType = resolveIPCPrinterType(targetPrinter);
+    const network = extractNetworkHostPort(targetPrinter.address);
+    const payload = getRealJobPayload(reprintTargetJob) || `^XA\n^FO50,50^A0N,36,36^FDREPRINT: ${reprintTargetJob.jobName}^FS\n^XZ`;
+
+    let dispatchSuccess = false;
+    let dispatchError = '';
+
+    if (isDesktopApp()) {
+      try {
+        const res = await desktopPrintLabel({
+          printerName: targetPrinter.systemPrinterName || targetPrinter.name,
+          printerType,
+          copies: reprintQuantity,
+          rawPayload: payload,
+          networkHost: network.host,
+          networkPort: network.port,
+          jobName: `Reprint-${newJobId}`
+        });
+        dispatchSuccess = res.success;
+        if (!res.success) {
+          dispatchError = res.error?.message || 'Reprint dispatch rejected by printer adapter';
+        }
+      } catch (err: any) {
+        dispatchSuccess = false;
+        dispatchError = err.message || 'Reprint IPC error';
+      }
+    } else {
+      // Web fallback
+      dispatchSuccess = true;
+    }
+
+    const statusVal: PrintJobState = dispatchSuccess
+      ? (printerType === 'network' ? 'TRANSMITTED' : 'COMPLETED')
+      : 'FAILED';
+
     const newJob: PrintJob = {
       id: newJobId,
       jobNumber: `RP-${Date.now().toString().slice(-6)}`,
@@ -429,12 +503,17 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
       copies: reprintQuantity,
       recordCount: reprintTargetJob.recordCount || 1,
       labelQuantity: reprintQuantity * (reprintTargetJob.recordCount || 1),
-      status: 'SENT_TO_PRINT_SERVICE',
+      status: statusVal,
       createdAt: new Date().toLocaleString(),
       sentAt: new Date().toLocaleString(),
       outputLanguage: targetPrinter.language,
+      rawPayload: payload,
+      rawPayloadPreview: payload.slice(0, 500),
       integrationMethod: `BarTender ${config.integrationMode} Controlled Reprint`,
-      integrationResponseSummary: `PRINT HANDOFF CONFIRMED — Reprint authorization logged (Reason: ${reprintReason}).`,
+      integrationResponseSummary: dispatchSuccess
+        ? `Reprint authorized and transmitted (Reason: ${reprintReason}).`
+        : `REPRINT DISPATCH FAILED: ${dispatchError}`,
+      error: dispatchError || undefined,
       retryCount: 0,
       originalPrintJobId: reprintTargetJob.id,
       reprintReason: `${reprintReason}${reprintCustomNote ? ` (${reprintCustomNote})` : ''}`,
@@ -458,14 +537,20 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
         reprintReason,
         targetPrinter: targetPrinter.id,
         copies: reprintQuantity,
+        status: statusVal
       }),
-      result: 'SUCCESS',
+      result: dispatchSuccess ? 'SUCCESS' : 'FAILURE',
+      errorMessage: dispatchError || undefined,
       ipAddress: '10.140.22.40',
     };
     onAddAuditLog(log);
 
     setReprintTargetJob(null);
-    showToast(`Controlled reprint dispatched for Job #${reprintTargetJob.id} to ${targetPrinter.name}.`);
+    if (dispatchSuccess) {
+      showToast(`Controlled reprint transmitted for Job #${reprintTargetJob.id} to ${targetPrinter.name}.`);
+    } else {
+      showToast(`Controlled reprint failed for Job #${reprintTargetJob.id}: ${dispatchError}`, 'error');
+    }
   };
 
   return (
@@ -487,10 +572,17 @@ export const BarTenderManagerModal: React.FC<BarTenderManagerModalProps> = ({
                 <span className="text-[10px] font-mono uppercase bg-blue-950/80 border border-blue-600/40 text-blue-300 px-2 py-0.5 rounded font-semibold">
                   Enterprise Suite
                 </span>
-                <span className="hidden sm:inline-flex text-[10px] font-mono bg-emerald-950/80 border border-emerald-600/40 text-emerald-300 px-2 py-0.5 rounded font-medium items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1" />
-                  Print Server Connected
-                </span>
+                {isDesktopApp() ? (
+                  <span className="hidden sm:inline-flex text-[10px] font-mono bg-emerald-950/80 border border-emerald-600/40 text-emerald-300 px-2 py-0.5 rounded font-medium items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
+                    Electron Native Spooler Active
+                  </span>
+                ) : (
+                  <span className="hidden sm:inline-flex text-[10px] font-mono bg-blue-950/80 border border-blue-600/40 text-blue-300 px-2 py-0.5 rounded font-medium items-center" title="Running in web browser. For direct hardware printing, run in Electron desktop app.">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5" />
+                    Web Studio Engine (Simulated Dispatch)
+                  </span>
+                )}
               </div>
               <p className="text-xs text-gray-400 truncate max-w-xl">
                 Multi-driver thermal &amp; laser fleet orchestration, BarTender .BTW template registry, failover routing, and immutable audit tracking.
