@@ -17,6 +17,7 @@ import { PrintJobRequest, PrinterDefinition, PrintJobResponse } from '../../serv
 import { validatePrintRequest } from '../../utils/validation';
 import { auditService } from '../../services/system/auditService';
 import { logger } from '../../utils/logger';
+import { getSessionPrincipal } from '../../utils/auth';
 
 import { checkPermission, PRIVILEGED_ACTIONS } from '../../config/permissions';
 
@@ -45,7 +46,12 @@ export function registerPrinterHandlers(): void {
   ipcMain.handle('printer:print', async (_event, request: PrintJobRequest): Promise<PrintJobResponse> => {
     logger.info('PrinterHandlers', `Received print request for printer "${request.printerName}" (type: ${request.printerType})`);
 
-    const identity = request.identity || { userId: 'default-op', userName: 'Default Operator', role: 'OPERATOR' };
+    const principal = getSessionPrincipal();
+    const identity = {
+      userId: principal.userId,
+      userName: principal.userName,
+      role: principal.role
+    };
 
     try {
       validatePrintRequest(request);
@@ -160,10 +166,15 @@ export function registerPrinterHandlers(): void {
   });
 
   // Test Print
-  ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl', identityArg?: any): Promise<PrintJobResponse> => {
+  ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl', _identityArg?: any): Promise<PrintJobResponse> => {
     logger.info('PrinterHandlers', `Test print triggered for ${printerName} with protocol ${protocol}`);
     
-    const identity = identityArg || { userId: 'default-op', userName: 'Default Operator', role: 'OPERATOR' };
+    const principal = getSessionPrincipal();
+    const identity = {
+      userId: principal.userId,
+      userName: principal.userName,
+      role: principal.role
+    };
 
     try {
       if (!checkPermission(identity.role, PRIVILEGED_ACTIONS.TEST_PRINT)) {

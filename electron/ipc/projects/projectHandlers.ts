@@ -8,6 +8,8 @@ import { projectStorage, LForgePackage } from '../../services/filesystem/project
 import { recentProjects } from '../../services/filesystem/recentFiles';
 import { validateFilePath } from '../../utils/validation';
 import { logger } from '../../utils/logger';
+import { getSessionPrincipal } from '../../utils/auth';
+import { checkPermission, PRIVILEGED_ACTIONS } from '../../config/permissions';
 
 import { paths } from '../../config/paths';
 
@@ -68,6 +70,11 @@ export function registerProjectHandlers(): void {
   // Save Project
   ipcMain.handle('project:save', async (_event, projectData: LForgePackage, filePath?: string) => {
     try {
+      const principal = getSessionPrincipal();
+      if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.SAVE_PROJECT)) {
+        throw new Error(`ERR_FORBIDDEN: User role '${principal.role}' does not have permission to save projects.`);
+      }
+
       let targetPath = filePath;
       let isDialog = false;
 
@@ -110,6 +117,11 @@ export function registerProjectHandlers(): void {
   // Save As Project (always opens native Windows Save dialog)
   ipcMain.handle('project:save-as', async (_event, projectData: LForgePackage) => {
     try {
+      const principal = getSessionPrincipal();
+      if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.SAVE_AS_PROJECT)) {
+        throw new Error(`ERR_FORBIDDEN: User role '${principal.role}' does not have permission to save-as projects.`);
+      }
+
       const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const res = await dialog.showSaveDialog(win, {
         title: 'Save LabelForge Project As',

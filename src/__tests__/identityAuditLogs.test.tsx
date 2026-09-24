@@ -24,7 +24,7 @@ describe('Phase 5: Real Identity Context & Audit Logging', () => {
     vi.unstubAllGlobals();
   });
 
-  it('provides default system admin identity initially', async () => {
+  it('provides default viewer identity initially', async () => {
     let capturedIdentity: any = null;
 
     const TestComponent = () => {
@@ -43,9 +43,9 @@ describe('Phase 5: Real Identity Context & Audit Logging', () => {
     });
 
     expect(capturedIdentity).not.toBeNull();
-    expect(capturedIdentity.role).toBe('SYSTEM_ADMIN');
-    expect(capturedIdentity.userId).toBe('usr-admin-01');
-    expect(capturedIdentity.userName).toBe('System Administrator');
+    expect(capturedIdentity.role).toBe('VIEWER');
+    expect(capturedIdentity.userId).toBe('usr-guest-04');
+    expect(capturedIdentity.userName).toBe('Guest Operator');
   });
 
   it('updates profile and user attributes when role changes', async () => {
@@ -78,7 +78,7 @@ describe('Phase 5: Real Identity Context & Audit Logging', () => {
     expect(capturedIdentity.email).toBe('operator@labelforge.internal');
   });
 
-  it('resolves real external IP address from ipify on load', async () => {
+  it('uses local safe IP address instead of external ipify on load', async () => {
     let capturedIdentity: any = null;
 
     const TestComponent = () => {
@@ -97,7 +97,7 @@ describe('Phase 5: Real Identity Context & Audit Logging', () => {
     });
 
     await vi.waitFor(() => {
-      expect(capturedIdentity.ipAddress).toBe('192.168.1.100');
+      expect(capturedIdentity.ipAddress).toBe('127.0.0.1');
     });
   });
 });
