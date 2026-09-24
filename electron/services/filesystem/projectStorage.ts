@@ -4,6 +4,7 @@
  */
 
 import path from 'path';
+import fs from 'fs';
 import { recentProjects } from './recentFiles';
 import { atomicFileReplace } from './atomicFileReplaceService';
 import { ProjectError } from '../../utils/errors';
@@ -16,14 +17,32 @@ export type { LForgePackage };
 
 export class ProjectStorageService {
   /**
-   * Loads and validates a .lforge project file with SHA-256 checksum verification
+   * Loads and validates a .lforge project file with SHA-256 checksum verification and resource limit validation
    */
   public async loadProject(filePath: string): Promise<LForgePackage> {
     logger.info('ProjectStorageService', `Loading project from ${filePath}`);
     
+    // Core Resource Limits Constants
+    const MAX_PROJECT_SIZE = 15 * 1024 * 1024; // 15MB
+    const MAX_JSON_DEPTH = 15;
+    const MAX_OBJECTS_COUNT = 500;
+    const MAX_ASSETS_COUNT = 100;
+    const MAX_ASSET_SIZE = 5 * 1024 * 1024; // 5MB
+    const MAX_STRING_LENGTH_LIMIT = 120000;
+
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(filePath);
+    } catch (err: any) {
+      throw new ProjectError(`Failed to access project file stats: ${err.message}`, { path: filePath });
+    }
+
+    if (stats.size > MAX_PROJECT_SIZE) {
+      throw new ProjectError(`Project file size (${stats.size} bytes) exceeds maximum limit of ${MAX_PROJECT_SIZE} bytes.`, { path: filePath });
+    }
+
     let content: string;
     try {
-      const fs = await import('fs');
       content = fs.readFileSync(filePath, 'utf-8');
     } catch (err: any) {
       throw new ProjectError(`Failed to read project file: ${err.message}`, { path: filePath });
@@ -35,6 +54,63 @@ export class ProjectStorageService {
     } catch (err: any) {
       throw new ProjectError(`Project file is not valid JSON: ${err.message}`, { path: filePath });
     }
+
+    // JSON Depth check
+    const getDepth = (obj: any): number => {
+      if (obj === null || typeof obj !== 'object') return 0;
+      let max = 0;
+      for (const k of Object.keys(obj)) {
+        max = Math.max(max, getDepth(obj[k]));
+      }
+      return max + 1;
+    };
+
+    const depth = getDepth(parsed);
+    if (depth > MAX_JSON_DEPTH) {
+      throw new ProjectError(`Project JSON depth (${depth}) exceeds safe threshold of ${MAX_JSON_DEPTH}.`, { path: filePath });
+    }
+
+    // Schema and limits check
+    if (!parsed || typeof parsed !== 'object') {
+      throw new ProjectError('Invalid project file structure (root must be a JSON object)', { path: filePath });
+    }
+
+    // Validate objects count
+    const objects = parsed.document?.objects;
+    if (Array.isArray(objects) && objects.length > MAX_OBJECTS_COUNT) {
+      throw new ProjectError(`Project contains ${objects.length} elements, exceeding maximum limit of ${MAX_OBJECTS_COUNT}`, { path: filePath });
+    }
+
+    // Validate assets limits
+    if (parsed.assets && typeof parsed.assets === 'object') {
+      const assetKeys = Object.keys(parsed.assets);
+      if (assetKeys.length > MAX_ASSETS_COUNT) {
+        throw new ProjectError(`Project contains ${assetKeys.length} assets, exceeding limit of ${MAX_ASSETS_COUNT}`, { path: filePath });
+      }
+      for (const key of assetKeys) {
+        const val = parsed.assets[key];
+        if (typeof val === 'string' && val.length > MAX_ASSET_SIZE) {
+          throw new ProjectError(`Embedded asset "${key}" exceeds maximum safe size.`, { path: filePath });
+        }
+      }
+    }
+
+    // Validate string lengths inside data to prevent memory overflow
+    const checkStrings = (obj: any) => {
+      if (!obj) return;
+      if (typeof obj === 'string') {
+        if (obj.length > MAX_STRING_LENGTH_LIMIT) {
+          throw new ProjectError('Project contains strings exceeding maximum allowed size', { path: filePath });
+        }
+      } else if (typeof obj === 'object') {
+        for (const k of Object.keys(obj)) {
+          // ignore embedded assets which have separate checks
+          if (k === 'assets') continue;
+          checkStrings(obj[k]);
+        }
+      }
+    };
+    checkStrings(parsed);
 
     // Run schema migration to transform legacy or v1 formats into canonical v2 package
     let pkg: LForgePackage;

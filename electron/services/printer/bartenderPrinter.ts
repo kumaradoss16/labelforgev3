@@ -20,7 +20,42 @@ let activeBarTenderConfig: BarTenderServerConfig = {
   timeoutMs: 8000
 };
 
+export function validateBarTenderUrl(urlString: string): { valid: boolean; error?: string } {
+  if (!urlString || typeof urlString !== 'string') {
+    return { valid: false, error: 'URL must be a non-empty string' };
+  }
+
+  try {
+    const parsed = new URL(urlString.trim());
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { valid: false, error: 'Invalid URL scheme. Only HTTP and HTTPS are permitted.' };
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    
+    // Validate bad characters to prevent SSRF parameter injection
+    if (/[;&|`<>\$\\]/.test(host) || host.includes('\0')) {
+      return { valid: false, error: 'Unsafe characters detected in server hostname' };
+    }
+
+    // SSRF checks on known forbidden IP blocks
+    if (host === '169.254.169.254' || host === '169.254.169.250') {
+      return { valid: false, error: 'Restricted network destination: Cloud metadata endpoint strictly blocked.' };
+    }
+
+    return { valid: true };
+  } catch (err: any) {
+    return { valid: false, error: 'Malformed URL: ' + err.message };
+  }
+}
+
 export function updateBarTenderConfig(newConfig: Partial<BarTenderServerConfig>) {
+  if (newConfig.baseUrl) {
+    const check = validateBarTenderUrl(newConfig.baseUrl);
+    if (!check.valid) {
+      throw new Error(`Invalid BarTender URL Configuration: ${check.error}`);
+    }
+  }
   activeBarTenderConfig = { ...activeBarTenderConfig, ...newConfig };
 }
 
@@ -31,6 +66,12 @@ export class BarTenderPrinterAdapter implements PrinterAdapter {
    */
   public async discover(): Promise<PrinterDefinition[]> {
     if (!activeBarTenderConfig.enabled) {
+      return [];
+    }
+
+    const check = validateBarTenderUrl(activeBarTenderConfig.baseUrl);
+    if (!check.valid) {
+      logger.error('BarTenderPrinterAdapter', `Blocked discovery due to invalid baseUrl: ${check.error}`);
       return [];
     }
 
@@ -71,6 +112,17 @@ export class BarTenderPrinterAdapter implements PrinterAdapter {
   }
 
   public async print(request: PrintJobRequest): Promise<PrintJobResponse> {
+    const check = validateBarTenderUrl(activeBarTenderConfig.baseUrl);
+    if (!check.valid) {
+      return {
+        success: false,
+        error: {
+          code: 'ERR_INVALID_BARTENDER_URL',
+          message: `Blocked print dispatch due to invalid BarTender server base URL: ${check.error}`
+        }
+      };
+    }
+
     const baseUrl = activeBarTenderConfig.baseUrl.replace(/\/+$/, '');
     const url = `${baseUrl}/BarTender/API/v1/Print`;
 

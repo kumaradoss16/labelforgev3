@@ -36,18 +36,46 @@ export function registerSystemHandlers(): void {
   });
 
   ipcMain.handle('settings:set', async (_event, newSettings: any) => {
+    if (!newSettings || typeof newSettings !== 'object') {
+      throw new Error('Invalid settings object structure');
+    }
+
+    // Strict prototype pollution prevention
+    const badKeys = ['__proto__', 'constructor', 'prototype'];
+    const sanitizeObj = (obj: any): any => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const clean: any = Array.isArray(obj) ? [] : {};
+      for (const key of Object.keys(obj)) {
+        if (badKeys.includes(key)) continue;
+        const val = obj[key];
+        clean[key] = (typeof val === 'object') ? sanitizeObj(val) : val;
+      }
+      return clean;
+    };
+
+    const sanitizedSettings = sanitizeObj(newSettings);
     const file = paths.getSettingsFilePath();
     try {
-      let current = {};
+      let current: any = {};
       if (fs.existsSync(file)) {
         current = JSON.parse(fs.readFileSync(file, 'utf-8'));
       }
-      const updated = { ...current, ...newSettings };
+
+      // Merge and validate keys
+      const updated: any = {
+        measurementUnit: sanitizedSettings.measurementUnit === 'in' ? 'in' : 'mm',
+        defaultDpi: [203, 300, 600].includes(Number(sanitizedSettings.defaultDpi)) ? Number(sanitizedSettings.defaultDpi) : (current.defaultDpi || 300),
+        darkness: typeof sanitizedSettings.darkness === 'number' && sanitizedSettings.darkness >= 1 && sanitizedSettings.darkness <= 30 ? sanitizedSettings.darkness : (current.darkness || 15),
+        printSpeed: typeof sanitizedSettings.printSpeed === 'number' && sanitizedSettings.printSpeed >= 1 && sanitizedSettings.printSpeed <= 12 ? sanitizedSettings.printSpeed : (current.printSpeed || 4),
+        autoSaveIntervalSec: typeof sanitizedSettings.autoSaveIntervalSec === 'number' && sanitizedSettings.autoSaveIntervalSec >= 5 && sanitizedSettings.autoSaveIntervalSec <= 3600 ? sanitizedSettings.autoSaveIntervalSec : (current.autoSaveIntervalSec || 60),
+        autoPreflightCheck: typeof sanitizedSettings.autoPreflightCheck === 'boolean' ? sanitizedSettings.autoPreflightCheck : (current.autoPreflightCheck !== false)
+      };
+
       fs.writeFileSync(file, JSON.stringify(updated, null, 2), 'utf-8');
       logger.info('SystemHandlers', 'Settings saved successfully');
       return updated;
-    } catch (err) {
-      logger.error('SystemHandlers', 'Failed to save settings', err);
+    } catch (err: any) {
+      logger.error('SystemHandlers', 'Failed to save settings: ' + err.message);
       throw err;
     }
   });

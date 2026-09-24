@@ -10,10 +10,10 @@ export interface UserIdentity {
 }
 
 export const DEFAULT_IDENTITY: UserIdentity = {
-  userId: 'usr-admin-01',
-  userName: 'System Administrator',
-  email: 'admin@labelforge.internal',
-  role: 'SYSTEM_ADMIN',
+  userId: 'usr-guest-04',
+  userName: 'Guest Operator',
+  email: 'guest@labelforge.internal',
+  role: 'VIEWER',
   ipAddress: '127.0.0.1',
 };
 
@@ -32,21 +32,24 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
   const [identity, setIdentityState] = useState<UserIdentity>(initialIdentity);
 
   useEffect(() => {
-    // Attempt client IP lookup with fast timeout
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2000);
-
-    fetch('https://api.ipify.org?format=json', { signal: controller.signal })
-      .then(r => r.json())
-      .then(data => {
-        if (data && data.ip) {
-          setIdentityState(prev => ({ ...prev, ipAddress: data.ip }));
-        }
-      })
-      .catch(() => {
-        // Fallback to local default IP
-      })
-      .finally(() => clearTimeout(timeout));
+    // Sync with main process secure session on startup
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth) {
+      (window as any).electronAPI.auth.getSession()
+        .then((session: any) => {
+          if (session) {
+            setIdentityState({
+              userId: session.userId,
+              userName: session.userName,
+              email: session.email,
+              role: session.role,
+              ipAddress: '127.0.0.1'
+            });
+          }
+        })
+        .catch(() => {});
+    } else {
+      setIdentityState(prev => ({ ...prev, ipAddress: '127.0.0.1' }));
+    }
   }, []);
 
   useEffect(() => {
@@ -60,49 +63,35 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
     setIdentityState(newIdentity);
   };
 
-  const updateRole = (role: UserRole) => {
+  const updateRole = async (role: UserRole) => {
     if (role === identity.role) return;
 
+    let confirmInput = '';
     const isTesting = typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || (process.env as any).VITEST);
     if (!isTesting) {
-      const confirmInput = window.prompt(`Confirm role change to ${role}. Please enter Security PIN to authorize:`);
-      if (confirmInput !== '1234') {
-        window.alert('Authorization failed. Invalid Security PIN.');
-        return;
-      }
+      const promptRes = window.prompt(`Confirm role change to ${role}. Please enter security credential to authorize:`);
+      if (promptRes === null) return; // User cancelled
+      confirmInput = promptRes;
     }
 
-    const nameMap: Record<UserRole, string> = {
-      SYSTEM_ADMIN: 'System Administrator',
-      PRINT_MANAGER: 'Print Operations Manager',
-      OPERATOR: 'Warehouse Operator',
-      VIEWER: 'Audit Viewer',
-    };
-    const idMap: Record<UserRole, string> = {
-      SYSTEM_ADMIN: 'usr-admin-01',
-      PRINT_MANAGER: 'usr-mgr-02',
-      OPERATOR: 'usr-op-03',
-      VIEWER: 'usr-view-04',
-    };
-    const emailMap: Record<UserRole, string> = {
-      SYSTEM_ADMIN: 'admin@labelforge.internal',
-      PRINT_MANAGER: 'manager@labelforge.internal',
-      OPERATOR: 'operator@labelforge.internal',
-      VIEWER: 'viewer@labelforge.internal',
-    };
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth) {
+      // Secure delegation of role update / verification to main process
+      const res = await (window as any).electronAPI.auth.updateRole(role, confirmInput);
+      if (!res || !res.success) {
+        window.alert(res?.error || 'Authorization failed. Invalid security credential.');
+        return;
+      }
 
-    const newIdentity: UserIdentity = {
-      ...identity,
-      role,
-      userName: nameMap[role] || identity.userName,
-      userId: idMap[role] || identity.userId,
-      email: emailMap[role] || identity.email,
-    };
+      const session = res.principal;
+      const newIdentity: UserIdentity = {
+        userId: session.userId,
+        userName: session.userName,
+        email: session.email,
+        role: session.role as UserRole,
+        ipAddress: identity.ipAddress
+      };
 
-    setIdentityState(newIdentity);
-
-    if (typeof window !== 'undefined') {
-      (window as any).currentIdentity = newIdentity;
+      setIdentityState(newIdentity);
 
       const event = new CustomEvent('role-changed-audit', {
         detail: {
@@ -115,6 +104,46 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
         }
       });
       window.dispatchEvent(event);
+    } else {
+      // Non-electron/testing mode fallback with secure checks
+      const requiredToken = role === 'SYSTEM_ADMIN' ? 'admin@lf3' 
+                          : role === 'PRINT_MANAGER' ? 'manager@lf3'
+                          : role === 'OPERATOR' ? 'operator@lf3'
+                          : '';
+      
+      if (requiredToken && confirmInput !== requiredToken && !isTesting) {
+        window.alert('Authorization failed. Invalid security credential.');
+        return;
+      }
+
+      const nameMap: Record<UserRole, string> = {
+        SYSTEM_ADMIN: 'System Administrator',
+        PRINT_MANAGER: 'Print Operations Manager',
+        OPERATOR: 'Warehouse Operator',
+        VIEWER: 'Guest Operator',
+      };
+      const idMap: Record<UserRole, string> = {
+        SYSTEM_ADMIN: 'usr-admin-01',
+        PRINT_MANAGER: 'usr-mgr-02',
+        OPERATOR: 'usr-op-03',
+        VIEWER: 'usr-guest-04',
+      };
+      const emailMap: Record<UserRole, string> = {
+        SYSTEM_ADMIN: 'admin@labelforge.internal',
+        PRINT_MANAGER: 'manager@labelforge.internal',
+        OPERATOR: 'operator@labelforge.internal',
+        VIEWER: 'guest@labelforge.internal',
+      };
+
+      const newIdentity: UserIdentity = {
+        ...identity,
+        role,
+        userName: nameMap[role] || identity.userName,
+        userId: idMap[role] || identity.userId,
+        email: emailMap[role] || identity.email,
+      };
+
+      setIdentityState(newIdentity);
     }
   };
 

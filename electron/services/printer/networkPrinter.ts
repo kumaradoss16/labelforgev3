@@ -5,6 +5,7 @@
  */
 
 import net from 'net';
+import dns from 'dns';
 import { PrinterAdapter, PrinterDefinition, PrintJobRequest, PrintJobResponse } from './printerAdapter';
 import { logger } from '../../utils/logger';
 
@@ -140,7 +141,7 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
     const port = request.networkPort || 9100;
     const payload = request.rawPayload;
 
-    // Validate network host and port
+    // Validate network host and port format initially
     const destVal = validateNetworkDestination(host, port);
     if (!destVal.valid) {
       return {
@@ -162,6 +163,39 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
       };
     }
 
+    // DNS Resolution to prevent DNS Rebinding / pinning target IP
+    let resolvedIp: string = host || '';
+    if (host && !IPV4_REGEX.test(host)) {
+      try {
+        resolvedIp = await new Promise<string>((resolve, reject) => {
+          dns.lookup(host, { family: 4 }, (err, address) => {
+            if (err) reject(err);
+            else resolve(address);
+          });
+        });
+        
+        // Re-validate the resolved IP address to prevent SSRF
+        const ipVal = validateNetworkDestination(resolvedIp, port);
+        if (!ipVal.valid) {
+          return {
+            success: false,
+            error: {
+              code: 'ERR_DNS_REBINDING_BLOCKED',
+              message: `SSRF/DNS Rebinding blocked: Resolved IP ${resolvedIp} is untrusted.`
+            }
+          };
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          error: {
+            code: 'ERR_DNS_RESOLUTION_FAILED',
+            message: `DNS resolution failed for hostname "${host}": ${err.message}`
+          }
+        };
+      }
+    }
+
     const buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload, 'utf-8');
 
     // Max payload check (20 MB safety limit)
@@ -175,7 +209,7 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
       };
     }
 
-    logger.info('NetworkPrinterAdapter', `Connecting to RAW socket at ${host}:${port} (${buffer.length} bytes)...`);
+    logger.info('NetworkPrinterAdapter', `Connecting to RAW socket at resolved IP ${resolvedIp}:${port} (original: ${host}, ${buffer.length} bytes)...`);
 
     return new Promise((resolve) => {
       const socket = new net.Socket();
@@ -185,12 +219,12 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
       const timeoutMs = request.timeoutMs || 8000;
       socket.setTimeout(timeoutMs);
 
-      socket.connect(port, host!, () => {
-        logger.info('NetworkPrinterAdapter', `Connected to ${host}:${port}. Streaming payload...`);
+      socket.connect(port, resolvedIp, () => {
+        logger.info('NetworkPrinterAdapter', `Connected to ${resolvedIp}:${port}. Streaming payload...`);
 
         socket.write(buffer, () => {
           bytesWritten = buffer.length;
-          logger.info('NetworkPrinterAdapter', `Transmitted ${bytesWritten} bytes to ${host}:${port}`);
+          logger.info('NetworkPrinterAdapter', `Transmitted ${bytesWritten} bytes to ${resolvedIp}:${port}`);
           socket.end();
         });
       });

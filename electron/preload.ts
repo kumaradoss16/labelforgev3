@@ -60,6 +60,11 @@ const electronAPI = {
     set: (settings: any) => ipcRenderer.invoke('settings:set', settings)
   },
 
+  auth: {
+    getSession: () => ipcRenderer.invoke('auth:get-session'),
+    updateRole: (role: string, credentialToken?: string) => ipcRenderer.invoke('auth:update-role', role, credentialToken)
+  },
+
   onMenuAction: (callback: (action: string) => void) => {
     const subscription = (_event: any, action: string) => callback(action);
     ipcRenderer.on('menu:action', subscription);
