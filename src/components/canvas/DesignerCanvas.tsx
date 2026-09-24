@@ -33,7 +33,8 @@ import {
   Plus,
   X,
   Square,
-  Target
+  Target,
+  Key
 } from 'lucide-react';
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GuideLine, GridSettings } from '../../types/label';
 import { DataRecord, SerializationCounter } from '../../types/database';
@@ -96,6 +97,11 @@ interface DesignerCanvasProps {
   onCloseDocumentTab?: (docId: string) => void;
   onNewDocumentTab?: () => void;
   onSelectTemplate?: (template: LabelDocument) => void;
+  // Relative Alignment mode additions
+  alignmentMode?: 'bounds' | 'key';
+  onSetAlignmentMode?: (mode: 'bounds' | 'key') => void;
+  keyObjectId?: string | null;
+  onSetKeyObjectId?: (id: string | null) => void;
 }
 
 export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
@@ -155,6 +161,10 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   onCloseDocumentTab,
   onNewDocumentTab,
   onSelectTemplate,
+  alignmentMode = 'bounds',
+  onSetAlignmentMode,
+  keyObjectId,
+  onSetKeyObjectId,
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -486,6 +496,10 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
 
     if (!effectiveSelectedIds.includes(obj.id)) {
       handleSelectMultiple([obj.id]);
+    } else if (effectiveSelectedIds.length > 1) {
+      // It was already selected, and we have multiple items selected! Designate as key object.
+      onSetKeyObjectId?.(obj.id);
+      onSetAlignmentMode?.('key');
     }
     setSelectedGuideId(null);
 
@@ -1567,10 +1581,24 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                           : 'move',
                         opacity: obj.visible ? obj.opacity : 0.2,
                       }}
-                      className={`group ${isSelected ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-transparent' : 'hover:ring-1 hover:ring-blue-300/60'}`}
+                      className={`group ${
+                        keyObjectId === obj.id && effectiveSelectedIds.length > 1
+                          ? 'ring-2 ring-amber-500 ring-offset-1 ring-offset-transparent'
+                          : isSelected
+                          ? 'ring-2 ring-blue-500 ring-offset-1 ring-offset-transparent'
+                          : 'hover:ring-1 hover:ring-blue-300/60'
+                      }`}
                     >
                       {/* Object Content Renderer */}
                       {renderObjectContent(obj, activeRecord, counter, qrCache)}
+
+                      {/* Key Object Visual Indicator Badge on Canvas */}
+                      {keyObjectId === obj.id && effectiveSelectedIds.length > 1 && (
+                        <div className="absolute -top-5 left-0 bg-amber-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-md whitespace-nowrap flex items-center space-x-1 pointer-events-none z-30 animate-pulse">
+                          <Key className="w-2.5 h-2.5 text-white" />
+                          <span>Key Anchor: {obj.name}</span>
+                        </div>
+                      )}
 
                       {/* Single Object Selection Bounding Box & Resizing Handles */}
                       {isSelected && !obj.locked && effectiveSelectedIds.length === 1 && (
@@ -1679,6 +1707,37 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                         <Layers className="w-3.5 h-3.5 text-blue-400" />
                         <span>{selectedObjs.length} Selected</span>
                       </div>
+
+                      {/* Align Target Selector (Relative Alignment) */}
+                      <div className="flex items-center space-x-1 pr-1.5 border-r border-[#323746] text-[10px]">
+                        <span className="text-gray-400 font-medium select-none">Target:</span>
+                        <select
+                          value={alignmentMode}
+                          onChange={(e) => onSetAlignmentMode?.(e.target.value as 'bounds' | 'key')}
+                          className="bg-[#242936] text-blue-400 font-semibold border border-[#3b4254] rounded px-1.5 py-0.5 focus:outline-none cursor-pointer text-[10px] h-5.5"
+                        >
+                          <option value="bounds">Bounds</option>
+                          <option value="key">Key Object</option>
+                        </select>
+                      </div>
+
+                      {alignmentMode === 'key' && (
+                        <div className="flex items-center space-x-1 pr-1.5 border-r border-[#323746] text-[10px]">
+                          <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <select
+                            value={keyObjectId || ''}
+                            onChange={(e) => onSetKeyObjectId?.(e.target.value)}
+                            className="bg-[#2a1e36] text-amber-300 font-semibold border border-[#5d3b87] rounded px-1.5 py-0.5 focus:outline-none cursor-pointer max-w-[85px] text-[10px] h-5.5"
+                            title="Select Stationary Key Anchor Object"
+                          >
+                            {selectedObjs.map(o => (
+                              <option key={o.id} value={o.id} className="bg-[#171922] text-[#c9ccd3]">
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
                       {/* Align Group Actions */}
                       <div className="flex items-center space-x-0.5">

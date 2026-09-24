@@ -33,12 +33,19 @@ interface RightToolboxProps {
   activeDataSource?: DataSourceDefinition;
   counter?: SerializationCounter;
   onOpenBarcodeWizard: () => void;
-  onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both') => void;
+  onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both' | 'distribute-h' | 'distribute-v') => void;
   onZOrder?: (direction: 'forward' | 'backward' | 'front' | 'back') => void;
   gridSettings?: GridSettings;
   onUpdateGridSettings?: (settings: GridSettings) => void;
   initialTab?: RightToolboxTab;
   onTabChange?: (tab: RightToolboxTab) => void;
+  // Relative Alignment additions
+  alignmentMode?: 'bounds' | 'key';
+  onSetAlignmentMode?: (mode: 'bounds' | 'key') => void;
+  keyObjectId?: string | null;
+  onSetKeyObjectId?: (id: string | null) => void;
+  selectedObjectIds?: string[];
+  objects?: LabelObject[];
 }
 
 export const RightToolbox: React.FC<RightToolboxProps> = ({
@@ -55,6 +62,12 @@ export const RightToolbox: React.FC<RightToolboxProps> = ({
   onUpdateGridSettings,
   initialTab = 'properties',
   onTabChange,
+  alignmentMode = 'bounds',
+  onSetAlignmentMode,
+  keyObjectId,
+  onSetKeyObjectId,
+  selectedObjectIds = [],
+  objects = [],
 }) => {
   const [activeTab, setActiveTab] = useState<RightToolboxTab>(initialTab);
 
@@ -139,6 +152,12 @@ export const RightToolbox: React.FC<RightToolboxProps> = ({
             onZOrder={onZOrder}
             gridSettings={gridSettings}
             onUpdateGridSettings={onUpdateGridSettings}
+            alignmentMode={alignmentMode}
+            onSetAlignmentMode={onSetAlignmentMode}
+            keyObjectId={keyObjectId}
+            onSetKeyObjectId={onSetKeyObjectId}
+            selectedObjectIds={selectedObjectIds}
+            objects={objects}
           />
         )}
 

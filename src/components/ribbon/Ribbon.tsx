@@ -57,6 +57,7 @@ interface RibbonProps {
   activeTab?: RibbonTab;
   setActiveTab?: (tab: RibbonTab) => void;
   selectedObject?: LabelObject | null;
+  selectedObjectIds?: string[];
   onUpdateObject?: (updated: Partial<LabelObject>) => void;
   onDeleteSelected?: () => void;
   onDuplicateSelected?: () => void;
@@ -128,6 +129,8 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
   };
 
   const selectedObject = props.selectedObject ?? null;
+  const selectedObjectIds = props.selectedObjectIds ?? [];
+  const isAnySelected = !!(selectedObject || selectedObjectIds.length > 0);
   const onUpdateObject = props.onUpdateObject ?? (() => {});
   const onDeleteSelected = props.onDeleteSelected ?? props.onDelete ?? (() => {});
   const onDuplicateSelected = props.onDuplicateSelected ?? props.onDuplicate ?? (() => {});
@@ -254,7 +257,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
               <div className="flex items-center space-x-1 flex-1">
                 <button
                   onClick={onDuplicateSelected}
-                  disabled={!selectedObject}
+                  disabled={!isAnySelected}
                   className="flex flex-col items-center justify-center px-2 py-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                   title="Duplicate Object (Ctrl+D)"
                 >
@@ -264,7 +267,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                 <div className="flex flex-col space-y-1">
                   <button
                     onClick={onDeleteSelected}
-                    disabled={!selectedObject}
+                    disabled={!isAnySelected}
                     className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-red-950/60 text-gray-300 hover:text-red-300 disabled:opacity-30"
                     title="Delete (Del)"
                   >
@@ -492,14 +495,14 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
               <div className="flex flex-col space-y-1 justify-center flex-1">
                 <button
                   onClick={onBringForward}
-                  disabled={!selectedObject}
+                  disabled={!isAnySelected}
                   className="px-2 py-0.5 rounded bg-[#2a2e38] hover:bg-[#333845] disabled:opacity-30 text-[10px] text-gray-200"
                 >
                   Bring Forward
                 </button>
                 <button
                   onClick={onSendBackward}
-                  disabled={!selectedObject}
+                  disabled={!isAnySelected}
                   className="px-2 py-0.5 rounded bg-[#2a2e38] hover:bg-[#333845] disabled:opacity-30 text-[10px] text-gray-200"
                 >
                   Send Backward
@@ -515,7 +518,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                   <div className="flex items-center space-x-1">
                     <button
                       onClick={() => onAlign('left')}
-                      disabled={!selectedObject}
+                      disabled={!isAnySelected}
                       className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                       title="Align Left Edge"
                     >
@@ -523,7 +526,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                     </button>
                     <button
                       onClick={() => onAlign('center')}
-                      disabled={!selectedObject}
+                      disabled={!isAnySelected}
                       className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                       title="Align Horizontal Center"
                     >
@@ -531,7 +534,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                     </button>
                     <button
                       onClick={() => onAlign('right')}
-                      disabled={!selectedObject}
+                      disabled={!isAnySelected}
                       className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                       title="Align Right Edge"
                     >
@@ -541,7 +544,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                   <div className="flex items-center space-x-1">
                     <button
                       onClick={() => onAlign('top')}
-                      disabled={!selectedObject}
+                      disabled={!isAnySelected}
                       className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                       title="Align Top Edge"
                     >
@@ -549,7 +552,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                     </button>
                     <button
                       onClick={() => onAlign('middle')}
-                      disabled={!selectedObject}
+                      disabled={!isAnySelected}
                       className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                       title="Align Vertical Center"
                     >
@@ -557,7 +560,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                     </button>
                     <button
                       onClick={() => onAlign('bottom')}
-                      disabled={!selectedObject}
+                      disabled={!isAnySelected}
                       className="p-1 rounded hover:bg-[#2f3440] disabled:opacity-30 text-gray-300 hover:text-white"
                       title="Align Bottom Edge"
                     >

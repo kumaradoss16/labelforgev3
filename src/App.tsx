@@ -98,6 +98,24 @@ export const App: React.FC = () => {
   const [selectedObjectIds, setSelectedObjectIds] = useState<string[]>([]);
   const [activeTool, setActiveTool] = useState<string>('select');
 
+  // Relative Alignment States
+  const [alignmentMode, setAlignmentMode] = useState<'bounds' | 'key'>('bounds');
+  const [keyObjectId, setKeyObjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedObjectIds.length > 1) {
+      if (!keyObjectId || !selectedObjectIds.includes(keyObjectId)) {
+        const nonLocked = selectedObjectIds.find(id => {
+          const obj = document.objects.find(o => o.id === id);
+          return obj && !obj.locked;
+        });
+        setKeyObjectId(nonLocked || selectedObjectIds[0]);
+      }
+    } else {
+      setKeyObjectId(null);
+    }
+  }, [selectedObjectIds, keyObjectId, document.objects]);
+
   // Ribbon Tab & Viewport Guides
   const [activeRibbonTab, setActiveRibbonTab] = useState<RibbonTab>('home');
   const [showRulers, setShowRulers] = useState<boolean>(true);
@@ -748,6 +766,27 @@ export const App: React.FC = () => {
         let newX = obj.x;
         let newY = obj.y;
 
+        if (alignmentMode === 'key' && keyObjectId) {
+          const keyObj = selectedObjs.find(o => o.id === keyObjectId);
+          if (keyObj) {
+            if (obj.id === keyObj.id) return obj; // Anchor key object never moves!
+
+            const keyCenterX = keyObj.x + keyObj.width / 2;
+            const keyCenterY = keyObj.y + keyObj.height / 2;
+            const keyRight = keyObj.x + keyObj.width;
+            const keyBottom = keyObj.y + keyObj.height;
+
+            if (type === 'left') newX = keyObj.x;
+            else if (type === 'center') newX = keyCenterX - obj.width / 2;
+            else if (type === 'right') newX = keyRight - obj.width;
+            else if (type === 'top') newY = keyObj.y;
+            else if (type === 'middle') newY = keyCenterY - obj.height / 2;
+            else if (type === 'bottom') newY = keyBottom - obj.height;
+
+            return { ...obj, x: Number(newX.toFixed(2)), y: Number(newY.toFixed(2)) };
+          }
+        }
+
         if (type === 'left') newX = minX;
         else if (type === 'center') newX = groupCenterX - obj.width / 2;
         else if (type === 'right') newX = maxX - obj.width;
@@ -1135,6 +1174,7 @@ export const App: React.FC = () => {
         setActiveTab={setActiveRibbonTab}
         document={document}
         selectedObject={selectedObject}
+        selectedObjectIds={selectedObjectIds}
         onUpdateObject={handleUpdateObject}
         onDeleteSelected={() => handleDeleteObject()}
         onDuplicateSelected={handleDuplicateObject}
@@ -1246,6 +1286,10 @@ export const App: React.FC = () => {
                 setActiveTool={setActiveTool}
                 onAlign={handleAlign}
                 onDuplicateSelected={handleDuplicateObject}
+                alignmentMode={alignmentMode}
+                onSetAlignmentMode={setAlignmentMode}
+                keyObjectId={keyObjectId}
+                onSetKeyObjectId={setKeyObjectId}
                 showGrid={showGrid}
                 setShowGrid={setShowGrid}
                 gridSettings={gridSettings}
@@ -1313,6 +1357,12 @@ export const App: React.FC = () => {
                 onZOrder={handleZOrder}
                 gridSettings={gridSettings}
                 onUpdateGridSettings={setGridSettings}
+                alignmentMode={alignmentMode}
+                onSetAlignmentMode={setAlignmentMode}
+                keyObjectId={keyObjectId}
+                onSetKeyObjectId={setKeyObjectId}
+                selectedObjectIds={selectedObjectIds}
+                objects={document.objects}
               />
             )}
           </div>

@@ -36,7 +36,8 @@ import {
   Bookmark,
   Image as ImageIcon,
   Upload,
-  Link
+  Link,
+  Key
 } from 'lucide-react';
 import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, ImageLabelObject, GridSettings } from '../../types/label';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
@@ -51,10 +52,17 @@ interface PropertiesPanelProps {
   onOpenBarcodeWizard: () => void;
   onOpenQRWizard?: () => void;
   onOpenPresets?: () => void;
-  onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both') => void;
+  onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both' | 'distribute-h' | 'distribute-v') => void;
   onZOrder?: (direction: 'forward' | 'backward' | 'front' | 'back') => void;
   gridSettings?: GridSettings;
   onUpdateGridSettings?: (settings: GridSettings) => void;
+  // Relative Alignment additions
+  alignmentMode?: 'bounds' | 'key';
+  onSetAlignmentMode?: (mode: 'bounds' | 'key') => void;
+  keyObjectId?: string | null;
+  onSetKeyObjectId?: (id: string | null) => void;
+  selectedObjectIds?: string[];
+  objects?: LabelObject[];
 }
 
 export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
@@ -76,7 +84,199 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     color: '#2563eb'
   },
   onUpdateGridSettings,
+  alignmentMode = 'bounds',
+  onSetAlignmentMode,
+  keyObjectId,
+  onSetKeyObjectId,
+  selectedObjectIds = [],
+  objects = [],
 }) => {
+  const isMultiSelect = selectedObjectIds.length > 1;
+
+  if (isMultiSelect) {
+    const selectedObjs = objects.filter(o => selectedObjectIds.includes(o.id));
+    return (
+      <aside className="w-full bg-[#1e2129] text-[#c8cbd2] select-none flex flex-col h-full text-xs overflow-y-auto">
+        {/* Header */}
+        <div className="p-2.5 font-semibold text-[11px] uppercase tracking-wider text-gray-300 border-b border-[#2d313d] flex items-center justify-between bg-[#242832]">
+          <div className="flex items-center space-x-1.5">
+            <Layers className="w-3.5 h-3.5 text-blue-400" />
+            <span>Group Properties ({selectedObjs.length} Items)</span>
+          </div>
+        </div>
+
+        <div className="p-3 space-y-4">
+          {/* Relative Alignment mode selection */}
+          <section className="space-y-2 bg-[#14161d] p-3 rounded border border-[#2a2d37]">
+            <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+              Alignment Mode Settings
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <div>
+                <label className="text-[10px] text-gray-400 block mb-1">Align Reference Target:</label>
+                <div className="grid grid-cols-2 gap-1 bg-[#1c1e26] p-0.5 rounded border border-[#343a49]">
+                  <button
+                    type="button"
+                    onClick={() => onSetAlignmentMode?.('bounds')}
+                    className={`py-1 rounded text-[10px] font-semibold transition-colors ${
+                      alignmentMode === 'bounds'
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    Selection Bounds
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSetAlignmentMode?.('key')}
+                    className={`py-1 rounded text-[10px] font-semibold transition-colors flex items-center justify-center ${
+                      alignmentMode === 'key'
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    Key Object
+                  </button>
+                </div>
+              </div>
+
+              {alignmentMode === 'key' && (
+                <div className="space-y-1.5 pt-1.5 border-t border-[#252834]">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="text-gray-400">Designated Key Object Anchor:</span>
+                    <span className="text-[9px] bg-amber-500/10 border border-amber-500/30 text-amber-300 px-1 py-0.2 rounded font-bold">
+                      Stationary
+                    </span>
+                  </div>
+                  <select
+                    value={keyObjectId || ''}
+                    onChange={(e) => onSetKeyObjectId?.(e.target.value)}
+                    className="w-full bg-[#1c1e26] border border-[#343a49] rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+                  >
+                    {selectedObjs.map(o => (
+                      <option key={o.id} value={o.id} className="bg-[#1e2129]">
+                        {o.name} ({o.type.toUpperCase()})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-500 leading-normal">
+                    Tip: You can also set any item as the key object by clicking on it directly in the canvas.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* Group Align Actions */}
+          {onAlign && (
+            <section className="space-y-2">
+              <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                Align Selection Group
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={() => onAlign('left')}
+                  className="p-2 bg-[#252a37] hover:bg-blue-600/30 text-gray-300 hover:text-white border border-[#323846] rounded flex flex-col items-center justify-center space-y-1 text-[10px]"
+                  title="Align Left Edges"
+                >
+                  <AlignLeft className="w-4 h-4 text-blue-400" />
+                  <span>Align Left</span>
+                </button>
+                <button
+                  onClick={() => onAlign('center')}
+                  className="p-2 bg-[#252a37] hover:bg-blue-600/30 text-gray-300 hover:text-white border border-[#323846] rounded flex flex-col items-center justify-center space-y-1 text-[10px]"
+                  title="Align Center Horizontally"
+                >
+                  <AlignCenter className="w-4 h-4 text-blue-400" />
+                  <span>Align Center</span>
+                </button>
+                <button
+                  onClick={() => onAlign('right')}
+                  className="p-2 bg-[#252a37] hover:bg-blue-600/30 text-gray-300 hover:text-white border border-[#323846] rounded flex flex-col items-center justify-center space-y-1 text-[10px]"
+                  title="Align Right Edges"
+                >
+                  <AlignRight className="w-4 h-4 text-blue-400" />
+                  <span>Align Right</span>
+                </button>
+                <button
+                  onClick={() => onAlign('top')}
+                  className="p-2 bg-[#252a37] hover:bg-blue-600/30 text-gray-300 hover:text-white border border-[#323846] rounded flex flex-col items-center justify-center space-y-1 text-[10px]"
+                  title="Align Top Edges"
+                >
+                  <AlignStartVertical className="w-4 h-4 text-blue-400" />
+                  <span>Align Top</span>
+                </button>
+                <button
+                  onClick={() => onAlign('middle')}
+                  className="p-2 bg-[#252a37] hover:bg-blue-600/30 text-gray-300 hover:text-white border border-[#323846] rounded flex flex-col items-center justify-center space-y-1 text-[10px]"
+                  title="Align Centers Vertically"
+                >
+                  <AlignCenterVertical className="w-4 h-4 text-blue-400" />
+                  <span>Align Middle</span>
+                </button>
+                <button
+                  onClick={() => onAlign('bottom')}
+                  className="p-2 bg-[#252a37] hover:bg-blue-600/30 text-gray-300 hover:text-white border border-[#323846] rounded flex flex-col items-center justify-center space-y-1 text-[10px]"
+                  title="Align Bottom Edges"
+                >
+                  <AlignEndVertical className="w-4 h-4 text-blue-400" />
+                  <span>Align Bottom</span>
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Page Centering and Distributions */}
+          {onAlign && (
+            <section className="space-y-2 pt-2 border-t border-[#2d313d]">
+              <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
+                Distribute &amp; Center Layout
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  disabled={selectedObjs.length < 3}
+                  onClick={() => onAlign('distribute-h')}
+                  className="p-1.5 bg-[#1f232e] hover:bg-[#282d3b] disabled:opacity-30 disabled:cursor-not-allowed border border-[#343a4b] text-[10px] rounded flex items-center justify-center space-x-1"
+                >
+                  <span>Distribute Horiz</span>
+                </button>
+                <button
+                  disabled={selectedObjs.length < 3}
+                  onClick={() => onAlign('distribute-v')}
+                  className="p-1.5 bg-[#1f232e] hover:bg-[#282d3b] disabled:opacity-30 disabled:cursor-not-allowed border border-[#343a4b] text-[10px] rounded flex items-center justify-center space-x-1"
+                >
+                  <span>Distribute Vert</span>
+                </button>
+                <button
+                  onClick={() => onAlign('center-page-h')}
+                  className="p-1.5 bg-[#1f232e] hover:bg-[#282d3b] border border-[#343a4b] text-[10px] rounded flex items-center justify-center space-x-1 col-span-2"
+                >
+                  <span>Center Page Horizontally</span>
+                </button>
+                <button
+                  onClick={() => onAlign('center-page-v')}
+                  className="p-1.5 bg-[#1f232e] hover:bg-[#282d3b] border border-[#343a4b] text-[10px] rounded flex items-center justify-center space-x-1 col-span-2"
+                >
+                  <span>Center Page Vertically</span>
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Quick Info/Guide Box */}
+          <section className="p-2.5 rounded bg-blue-950/20 border border-blue-900/40 text-[11px] text-blue-300 leading-relaxed">
+            <div className="font-bold flex items-center mb-1 text-blue-200">
+              <Sparkles className="w-3.5 h-3.5 text-blue-400 mr-1.5" />
+              Relative Alignment Concept
+            </div>
+            When using <strong className="text-white">Key Object</strong> alignment target, the selected Key Object serves as a fixed reference anchor. It stays stationary while other selected items move to align perfectly with its edge/center.
+          </section>
+        </div>
+      </aside>
+    );
+  }
+
   if (!selectedObject) {
     const handleUpdateGrid = (changes: Partial<GridSettings>) => {
       if (onUpdateGridSettings) {
