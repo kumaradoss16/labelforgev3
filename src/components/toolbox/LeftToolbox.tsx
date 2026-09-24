@@ -142,6 +142,13 @@ export const LeftToolbox: React.FC<LeftToolboxProps> = (props) => {
                 <span>Rich Multilingual</span>
               </button>
               <button
+                onClick={() => safeAddObject('image')}
+                className="w-full flex items-center space-x-2 px-2 py-1 rounded hover:bg-[#282d38] text-gray-300 hover:text-white text-left"
+              >
+                <ImageIcon className="w-3.5 h-3.5 text-pink-400" />
+                <span>Graphic / Image</span>
+              </button>
+              <button
                 onClick={() => safeAddObject('rect')}
                 className="w-full flex items-center space-x-2 px-2 py-1 rounded hover:bg-[#282d38] text-gray-300 hover:text-white text-left"
               >

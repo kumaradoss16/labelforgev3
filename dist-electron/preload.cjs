@@ -39,7 +39,7 @@ var electronAPI = {
     list: () => import_electron.ipcRenderer.invoke("printer:list"),
     getDefault: () => import_electron.ipcRenderer.invoke("printer:default"),
     print: (request) => import_electron.ipcRenderer.invoke("printer:print", request),
-    testPrint: (printerName, protocol) => import_electron.ipcRenderer.invoke("printer:test", printerName, protocol)
+    testPrint: (printerName, protocol, identity) => import_electron.ipcRenderer.invoke("printer:test", printerName, protocol, identity)
   },
   system: {
     getInfo: () => import_electron.ipcRenderer.invoke("system:get-info")

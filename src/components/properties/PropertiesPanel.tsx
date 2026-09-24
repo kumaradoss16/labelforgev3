@@ -30,9 +30,15 @@ import {
   ArrowDown,
   ChevronsUp,
   ChevronsDown,
-  FileText
+  FileText,
+  QrCode,
+  ArrowRight,
+  Bookmark,
+  Image as ImageIcon,
+  Upload,
+  Link
 } from 'lucide-react';
-import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GridSettings } from '../../types/label';
+import { LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, ImageLabelObject, GridSettings } from '../../types/label';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { BARCODE_CATALOG } from '../../services/barcodeEngine';
 import { FONT_GROUPS, getFontDefinition } from '../../services/fontFamilies';
@@ -43,6 +49,8 @@ interface PropertiesPanelProps {
   activeDataSource?: DataSourceDefinition;
   counter?: SerializationCounter;
   onOpenBarcodeWizard: () => void;
+  onOpenQRWizard?: () => void;
+  onOpenPresets?: () => void;
   onAlign?: (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'center-page-h' | 'center-page-v' | 'center-both') => void;
   onZOrder?: (direction: 'forward' | 'backward' | 'front' | 'back') => void;
   gridSettings?: GridSettings;
@@ -55,6 +63,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   activeDataSource,
   counter,
   onOpenBarcodeWizard,
+  onOpenQRWizard,
+  onOpenPresets,
   onAlign,
   onZOrder,
   gridSettings = {
@@ -78,7 +88,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
     };
 
     return (
-      <aside className="w-72 bg-[#1e2129] border-l border-[#2f333f] text-[#c8cbd2] select-none flex flex-col h-full text-xs overflow-y-auto">
+      <aside className="w-full bg-[#1e2129] text-[#c8cbd2] select-none flex flex-col h-full text-xs overflow-y-auto">
         {/* Header */}
         <div className="p-2.5 font-semibold text-[11px] uppercase tracking-wider text-gray-300 border-b border-[#2d313d] flex items-center justify-between bg-[#242832]">
           <div className="flex items-center space-x-1.5">
@@ -276,9 +286,11 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const barcodeObj = isBarcode ? (selectedObject as BarcodeLabelObject) : null;
   const isShape = selectedObject.type === 'rect' || selectedObject.type === 'ellipse' || selectedObject.type === 'line';
   const shapeObj = isShape ? (selectedObject as ShapeLabelObject) : null;
+  const isImage = selectedObject.type === 'image';
+  const imageObj = isImage ? (selectedObject as ImageLabelObject) : null;
 
   return (
-    <aside className="w-72 bg-[#1e2129] border-l border-[#2f333f] text-[#c8cbd2] select-none flex flex-col h-full text-xs overflow-y-auto">
+    <aside className="w-full bg-[#1e2129] text-[#c8cbd2] select-none flex flex-col h-full text-xs overflow-y-auto">
       {/* Header */}
       <div className="p-2.5 font-semibold text-[11px] uppercase tracking-wider text-gray-300 border-b border-[#2d313d] flex items-center justify-between bg-[#242832]">
         <div className="flex items-center space-x-1.5">
@@ -487,13 +499,25 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
           <section className="space-y-2 border-t border-[#2d313d] pt-3">
             <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider flex items-center justify-between">
               <span>Barcode Specification</span>
-              <button
-                onClick={onOpenBarcodeWizard}
-                className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center space-x-0.5"
-              >
-                <Sparkles className="w-3 h-3" />
-                <span>Catalog</span>
-              </button>
+              <div className="flex items-center space-x-2">
+                {onOpenPresets && (
+                  <button
+                    onClick={onOpenPresets}
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 flex items-center space-x-0.5"
+                    title="Open Barcode Presets"
+                  >
+                    <Bookmark className="w-3 h-3" />
+                    <span>Presets</span>
+                  </button>
+                )}
+                <button
+                  onClick={onOpenBarcodeWizard}
+                  className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center space-x-0.5"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Catalog</span>
+                </button>
+              </div>
             </div>
 
             <div>
@@ -583,22 +607,49 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
 
             {/* Error correction for 2D QR */}
             {(barcodeObj.barcodeStyle.symbology === 'qr' || barcodeObj.barcodeStyle.symbology === 'gs1-qr') && (
-              <div>
-                <label className="text-[10px] text-gray-400 block mb-0.5">Error Correction Level (ECC)</label>
-                <select
-                  value={barcodeObj.barcodeStyle.errorCorrectionLevel || 'M'}
-                  onChange={(e) =>
-                    onUpdateObject({
-                      barcodeStyle: { ...barcodeObj.barcodeStyle, errorCorrectionLevel: e.target.value as any },
-                    })
-                  }
-                  className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white"
-                >
-                  <option value="L">L (7% recovery - Highest density)</option>
-                  <option value="M">M (15% recovery - Standard)</option>
-                  <option value="Q">Q (25% recovery - Industrial)</option>
-                  <option value="H">H (30% recovery - Max durability)</option>
-                </select>
+              <div className="space-y-2 pt-1">
+                {/* QR Code Wizard Banner */}
+                <div className="p-2 rounded bg-emerald-950/40 border border-emerald-700/50 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-emerald-300 flex items-center space-x-1">
+                      <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>QR Code Wizard</span>
+                    </span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-900/60 text-emerald-200 font-mono font-semibold">
+                      ECC {barcodeObj.barcodeStyle.errorCorrectionLevel || 'M'}
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-gray-300 leading-tight">
+                    Full URL encoding, vCard profiles, and custom Error Correction Levels (L, M, Q, H).
+                  </p>
+                  {onOpenQRWizard && (
+                    <button
+                      onClick={onOpenQRWizard}
+                      className="w-full py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold flex items-center justify-center space-x-1 shadow-sm transition-colors"
+                    >
+                      <span>Open in QR Wizard</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-0.5">Error Correction Level (ECC)</label>
+                  <select
+                    value={barcodeObj.barcodeStyle.errorCorrectionLevel || 'M'}
+                    onChange={(e) =>
+                      onUpdateObject({
+                        barcodeStyle: { ...barcodeObj.barcodeStyle, errorCorrectionLevel: e.target.value as any },
+                      })
+                    }
+                    className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white"
+                  >
+                    <option value="L">L (7% recovery - Highest density)</option>
+                    <option value="M">M (15% recovery - Standard)</option>
+                    <option value="Q">Q (25% recovery - Industrial)</option>
+                    <option value="H">H (30% recovery - Max durability)</option>
+                  </select>
+                </div>
               </div>
             )}
           </section>
@@ -894,6 +945,67 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   />
                 </div>
               )}
+            </div>
+          </section>
+        )}
+
+        {/* 6. GRAPHIC / IMAGE PROPERTIES */}
+        {isImage && imageObj && (
+          <section className="space-y-2.5 border-t border-[#2d313d] pt-3">
+            <div className="text-[10px] uppercase font-bold text-gray-400 tracking-wider flex items-center justify-between">
+              <span className="flex items-center space-x-1.5">
+                <ImageIcon className="w-3.5 h-3.5 text-pink-400" />
+                <span>Graphic / Image Source</span>
+              </span>
+            </div>
+
+            <div>
+              <label className="text-[10px] text-gray-400 block mb-1">Image URL / Data URI</label>
+              <textarea
+                rows={2}
+                value={imageObj.src}
+                onChange={(e) => onUpdateObject({ src: e.target.value })}
+                className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                placeholder="https://... or data:image/png;base64,..."
+              />
+            </div>
+
+            {/* Local Image File Upload */}
+            <div>
+              <label className="w-full flex items-center justify-center space-x-2 px-3 py-1.5 rounded bg-[#272c38] hover:bg-[#323847] text-gray-200 border border-[#3c4354] cursor-pointer text-xs transition-colors">
+                <Upload className="w-3.5 h-3.5 text-blue-400" />
+                <span>Choose Local Image File...</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (evt) => {
+                        const base64 = evt.target?.result as string;
+                        if (base64) {
+                          onUpdateObject({ src: base64, name: file.name.slice(0, 20) });
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="pt-1">
+              <label className="flex items-center space-x-2 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={imageObj.aspectRatioLocked ?? true}
+                  onChange={(e) => onUpdateObject({ aspectRatioLocked: e.target.checked })}
+                  className="rounded bg-[#16181f] border-gray-600 text-blue-600"
+                />
+                <span>Lock Aspect Ratio (Preserve Proportions)</span>
+              </label>
             </div>
           </section>
         )}

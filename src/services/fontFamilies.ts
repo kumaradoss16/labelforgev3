@@ -26,7 +26,42 @@ export interface WindowsFontDefinition {
 
 export const WINDOWS_FONT_CATALOG: WindowsFontDefinition[] = [
   // =========================================================================
-  // 1. STANDARD WINDOWS TRUETYPE (TTF) FONTS
+  // 1. MODERN ENTERPRISE UI & TECHNICAL FONTS
+  // =========================================================================
+  {
+    family: 'Inter',
+    displayName: 'Inter (Enterprise UI Standard)',
+    format: 'OpenType (OTF)',
+    formatCode: 'OTF',
+    category: 'sans-serif',
+    categoryLabel: 'Modern Sans-Serif',
+    fallbackStack: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    description: 'Premier modern geometric sans-serif engineered for ultra-high legibility on screens and high-resolution thermal outputs.',
+    bestFor: 'Product cards, compliance badges, batch details, modern industrial labels',
+    sampleText: 'LOT-98421 // PART NO: CR-89410-B // QTY: 500 PCS',
+    windowsStandard: 'Modern Enterprise / Web Standard (Inter Variable)',
+    zplFontName: 'INTER.TTF',
+    tsplFontName: 'INTER.TTF',
+    openTypeFeatures: ['Tabular Figures', 'Discretionary Ligatures', 'Crisp Pixel Alignment'],
+  },
+  {
+    family: 'JetBrains Mono',
+    displayName: 'JetBrains Mono (Technical Monospace)',
+    format: 'OpenType (OTF)',
+    formatCode: 'OTF',
+    category: 'monospace',
+    categoryLabel: 'Technical Monospace',
+    fallbackStack: "'JetBrains Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, Menlo, 'Courier New', monospace",
+    description: 'Precision industrial monospaced typeface with enhanced character discrimination for serialization codes and MAC addresses.',
+    bestFor: 'Serialization numbers, hex payloads, MAC addresses, barcode human-readable text',
+    sampleText: 'SN: 884-A109-REV3 | DC: 24V 1.5A | MAC: 00:1A:2B:3C:4D:5E',
+    windowsStandard: 'Modern Developer / Industrial Monospace',
+    zplFontName: 'JBMONO.TTF',
+    tsplFontName: 'JBMONO.TTF',
+    openTypeFeatures: ['Tabular Digits', 'Clear Zero Slash', 'Fixed Character Pitch'],
+  },
+  // =========================================================================
+  // 2. STANDARD WINDOWS TRUETYPE (TTF) FONTS
   // =========================================================================
   {
     family: 'Arial',

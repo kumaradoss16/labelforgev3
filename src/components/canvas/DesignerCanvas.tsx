@@ -32,7 +32,8 @@ import {
   FileText,
   Plus,
   X,
-  Square
+  Square,
+  Target
 } from 'lucide-react';
 import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, GuideLine, GridSettings } from '../../types/label';
 import { DataRecord, SerializationCounter } from '../../types/database';
@@ -63,6 +64,8 @@ interface DesignerCanvasProps {
   setSnapToGrid?: (v: boolean) => void;
   smartSnapping?: boolean;
   setSmartSnapping?: (v: boolean) => void;
+  snapToCanvas?: boolean;
+  setSnapToCanvas?: (v: boolean) => void;
   zoom: number;
   setZoom: (val: number | ((prev: number) => number)) => void;
   showRulers: boolean;
@@ -121,6 +124,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   setSnapToGrid,
   smartSnapping,
   setSmartSnapping,
+  snapToCanvas,
+  setSnapToCanvas,
   zoom,
   setZoom,
   showRulers,
@@ -210,6 +215,17 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
       setSmartSnapping(!isSmartSnappingActive);
     } else {
       setLocalSmartSnapping(prev => !prev);
+    }
+  };
+
+  // Snap-to-Canvas State (Magnetic alignment to label outer edges and center lines)
+  const [localSnapToCanvas, setLocalSnapToCanvas] = useState<boolean>(true);
+  const isSnapToCanvasActive = snapToCanvas !== undefined ? snapToCanvas : localSnapToCanvas;
+  const toggleSnapToCanvas = () => {
+    if (setSnapToCanvas) {
+      setSnapToCanvas(!isSnapToCanvasActive);
+    } else {
+      setLocalSnapToCanvas(prev => !prev);
     }
   };
   const [activeSnapGuides, setActiveSnapGuides] = useState<ActiveSnapGuide[]>([]);
@@ -572,7 +588,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
           let snappedY = rawY;
           let currentGuides: ActiveSnapGuide[] = [];
 
-          if (isSmartSnappingActive && pObj && !e.altKey) {
+          const shouldSnap = (isSmartSnappingActive || isSnapToCanvasActive) && pObj && !e.altKey;
+          if (shouldSnap) {
             const snapRes = computeIntelligentSnap({
               draggedObj: {
                 id: primaryDragId,
@@ -584,8 +601,10 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
               otherObjects: doc.objects.filter(o => !effectiveSelectedIds.includes(o.id)),
               canvasWidthMm: doc.dimensions.width,
               canvasHeightMm: doc.dimensions.height,
-              thresholdMm: Math.max(1.5, 6 / pxPerMm),
+              thresholdMm: Math.max(1.8, 7 / pxPerMm),
               enabled: true,
+              snapToCanvas: isSnapToCanvasActive,
+              snapToObjects: isSmartSnappingActive,
             });
             snappedX = snapRes.hasSnappedX ? snapRes.x : snap(rawX, true);
             snappedY = snapRes.hasSnappedY ? snapRes.y : snap(rawY, false);
@@ -607,7 +626,8 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
           let newY = rawY;
           let currentGuides: ActiveSnapGuide[] = [];
 
-          if (isSmartSnappingActive && !e.altKey) {
+          const shouldSnap = (isSmartSnappingActive || isSnapToCanvasActive) && !e.altKey;
+          if (shouldSnap) {
             const snapRes = computeIntelligentSnap({
               draggedObj: {
                 id: selectedObj.id,
@@ -619,8 +639,10 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
               otherObjects: doc.objects.filter(o => o.id !== selectedObj.id),
               canvasWidthMm: doc.dimensions.width,
               canvasHeightMm: doc.dimensions.height,
-              thresholdMm: Math.max(1.5, 6 / pxPerMm),
+              thresholdMm: Math.max(1.8, 7 / pxPerMm),
               enabled: true,
+              snapToCanvas: isSnapToCanvasActive,
+              snapToObjects: isSmartSnappingActive,
             });
             newX = snapRes.hasSnappedX ? snapRes.x : snap(rawX, true);
             newY = snapRes.hasSnappedY ? snapRes.y : snap(rawY, false);
@@ -804,13 +826,13 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full bg-[#13151b] relative overflow-hidden select-none">
       {/* ==================================================================== */}
-      {/* 1. ENLARGED LABEL EDITOR DOCUMENT TAB BAR & CONTROL STRIP */}
+      {/* 1. COMPACT LABEL EDITOR DOCUMENT TAB BAR & CONTROL STRIP */}
       {/* ==================================================================== */}
       <div className="bg-[#181a22] border-b border-[#2d313d] flex flex-col z-30 shrink-0 select-none shadow-xs">
-        {/* Tier 1: Authentic Enlarged Document / Template Tabs */}
-        <div className="h-14 bg-[#14161e] border-b border-[#272b38] px-3 flex items-center justify-between overflow-x-auto">
+        {/* Tier 1: Document / Template Tabs */}
+        <div className="h-10 bg-[#14161e] border-b border-[#272b38] px-2 flex items-center justify-between overflow-x-auto scrollbar-none">
           {/* Left: Document Tabs Strip */}
-          <div className="flex items-center space-x-2 h-full pt-2">
+          <div className="flex items-center space-x-1.5 h-full pt-1">
             {/* Open document tabs or current document tab */}
             {(openDocuments && openDocuments.length > 0 ? openDocuments : [doc])
               .filter((d): d is LabelDocument => Boolean(d && d.id))
@@ -822,33 +844,33 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                   <div
                     key={tDoc.id}
                     onClick={() => onSelectDocumentTab?.(tDoc.id)}
-                    className={`group relative flex items-center space-x-3 px-4.5 h-12 rounded-t-lg cursor-pointer transition-all duration-150 border-t-2 shadow-xs ${
+                    className={`group relative flex items-center space-x-2 px-3 h-8.5 rounded-t-md cursor-pointer transition-all duration-150 border-t-2 shadow-xs ${
                       isActive
-                        ? 'bg-[#1f232d] border-blue-500 text-white shadow-md'
+                        ? 'bg-[#1f232d] border-blue-500 text-white shadow-sm'
                         : 'bg-[#151720] border-transparent text-gray-400 hover:text-gray-200 hover:bg-[#1a1d26]'
                     }`}
                     title={`${tDoc.name || 'Untitled'} (${width}×${height}mm)`}
                   >
-                    <Tag className={`w-4 h-4 shrink-0 ${isActive ? 'text-blue-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
+                    <Tag className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-blue-400' : 'text-gray-500 group-hover:text-gray-400'}`} />
 
-                    {/* Document / Template Name - Enlarged font for maximum prominence */}
-                    <span className={`text-sm font-bold tracking-wide whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-300'}`}>
+                    {/* Document / Template Name */}
+                    <span className={`text-xs font-semibold tracking-wide whitespace-nowrap ${isActive ? 'text-white' : 'text-gray-300'}`}>
                       {tDoc.name || 'Untitled Template'}
                     </span>
 
                     {/* Format Badge */}
-                    <span className="text-[11px] font-mono bg-blue-950/90 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded font-bold shrink-0">
+                    <span className="text-[9px] font-mono bg-blue-950/90 border border-blue-500/50 text-blue-300 px-1.5 py-0.2 rounded font-bold shrink-0">
                       .lforge
                     </span>
 
                     {/* Physical Dimensions Chip */}
-                    <span className="text-xs font-mono bg-[#101218] px-2.5 py-1 rounded text-gray-200 border border-[#2b303e] font-semibold shrink-0">
+                    <span className="text-[10px] font-mono bg-[#101218] px-1.5 py-0.5 rounded text-gray-300 border border-[#2b303e] font-medium shrink-0">
                       {width}×{height} mm
                     </span>
 
                     {/* Unsaved indicator */}
                     {isActive && isModified && (
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse ml-0.5 shrink-0" title="Unsaved Changes" />
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse ml-0.5 shrink-0" title="Unsaved Changes" />
                     )}
 
                     {/* Close Tab Button */}
@@ -858,10 +880,10 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                           e.stopPropagation();
                           onCloseDocumentTab?.(tDoc.id);
                         }}
-                        className="ml-1.5 p-1 rounded-md hover:bg-[#2e3444] text-gray-400 hover:text-white transition-colors shrink-0"
+                        className="ml-1 p-0.5 rounded hover:bg-[#2e3444] text-gray-400 hover:text-white transition-colors shrink-0"
                         title="Close Template Tab"
                       >
-                        <X className="w-4 h-4" />
+                        <X className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
@@ -872,28 +894,28 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
             {onNewDocumentTab && (
               <button
                 onClick={onNewDocumentTab}
-                className="h-10 px-3.5 rounded-md hover:bg-[#232733] bg-[#181a24] border border-[#2d3243] text-gray-300 hover:text-blue-400 flex items-center space-x-1.5 text-xs font-semibold transition-colors"
+                className="h-7.5 px-2.5 rounded hover:bg-[#232733] bg-[#181a24] border border-[#2d3243] text-gray-300 hover:text-blue-400 flex items-center space-x-1 text-[11px] font-medium transition-colors"
                 title="Open Template / New Label Tab"
               >
-                <Plus className="w-4 h-4 text-blue-400" />
+                <Plus className="w-3.5 h-3.5 text-blue-400" />
                 <span className="hidden sm:inline">New Tab</span>
               </button>
             )}
           </div>
 
           {/* Right: Quick Template Dropdown, Select/Pan tools, and Maximize */}
-          <div className="flex items-center space-x-2 pl-3">
+          <div className="flex items-center space-x-2 pl-2">
             {/* Quick Template Switcher Dropdown */}
             {onSelectTemplate && (
-              <div className="flex items-center space-x-2">
-                <span className="text-gray-400 text-xs font-medium hidden md:inline">Template:</span>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-gray-400 text-[11px] font-medium hidden md:inline">Template:</span>
                 <select
                   value={doc?.id || ''}
                   onChange={(e) => {
                     const found = (SAMPLE_TEMPLATES || []).find(t => t && t.id === e.target.value);
                     if (found) onSelectTemplate(found);
                   }}
-                  className="bg-[#1b1e27] border border-[#343a49] text-xs text-gray-100 rounded-md px-3 py-1.5 font-semibold hover:border-blue-500 focus:outline-none focus:border-blue-500 cursor-pointer h-9"
+                  className="bg-[#1b1e27] border border-[#343a49] text-xs text-gray-100 rounded px-2 py-1 font-medium hover:border-blue-500 focus:outline-none focus:border-blue-500 cursor-pointer h-7.5"
                   title="Switch Active Label Template"
                 >
                   {(SAMPLE_TEMPLATES || []).filter(Boolean).map((tpl) => (
@@ -906,29 +928,29 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
             )}
 
             {/* Select / Hand Pan Mode Selector */}
-            <div className="flex items-center bg-[#222530] border border-[#313644] rounded-md p-0.5 space-x-0.5 h-9">
+            <div className="flex items-center bg-[#222530] border border-[#313644] rounded p-0.5 space-x-0.5 h-7.5">
               <button
                 onClick={() => setActiveTool?.('select')}
-                className={`px-2.5 h-full rounded text-xs flex items-center space-x-1.5 transition-colors ${
+                className={`px-2 h-full rounded text-[11px] flex items-center space-x-1 transition-colors ${
                   !isHandModeActive
                     ? 'bg-blue-600 text-white font-semibold shadow-xs'
                     : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
                 }`}
                 title="Select Tool (V)"
               >
-                <MousePointer className="w-3.5 h-3.5" />
+                <MousePointer className="w-3 h-3" />
                 <span className="hidden lg:inline">Select</span>
               </button>
               <button
                 onClick={() => setActiveTool?.('pan')}
-                className={`px-2.5 h-full rounded text-xs flex items-center space-x-1.5 transition-colors ${
+                className={`px-2 h-full rounded text-[11px] flex items-center space-x-1 transition-colors ${
                   isHandModeActive
                     ? 'bg-amber-600 text-white font-semibold shadow-xs'
                     : 'text-gray-400 hover:text-gray-200 hover:bg-[#2a2e3d]'
                 }`}
                 title="Hand Pan Tool (H / Spacebar)"
               >
-                <Hand className="w-3.5 h-3.5" />
+                <Hand className="w-3 h-3" />
                 <span className="hidden lg:inline">Pan</span>
               </button>
             </div>
@@ -937,14 +959,14 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
             {onToggleMaximize && (
               <button
                 onClick={onToggleMaximize}
-                className={`h-9 w-9 rounded-md border flex items-center justify-center transition-colors ${
+                className={`h-7.5 w-7.5 rounded border flex items-center justify-center transition-colors ${
                   isMaximized
                     ? 'bg-blue-600 border-blue-500 text-white'
                     : 'bg-[#222530] border-[#313644] text-gray-300 hover:text-white hover:bg-[#2c3140]'
                 }`}
                 title={isMaximized ? 'Restore Normal Workspace' : 'Maximize Editor Section (Focus Mode)'}
               >
-                {isMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
               </button>
             )}
           </div>
@@ -1103,6 +1125,25 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
             >
               <Magnet className="w-3 h-3 text-amber-400" />
               <span>Snap</span>
+            </button>
+
+            {/* Snap to Canvas Toggle (Magnetic alignment to label outer edges & centerlines) */}
+            <button
+              id="designer-canvas-snap-to-canvas-btn"
+              onClick={toggleSnapToCanvas}
+              className={`px-2 py-0.5 rounded text-[11px] flex items-center space-x-1 border transition-colors ${
+                isSnapToCanvasActive
+                  ? 'bg-emerald-600/20 border-emerald-500/50 text-emerald-300'
+                  : 'bg-[#222530] border-[#313644] text-gray-400 hover:text-gray-200'
+              }`}
+              title={
+                isSnapToCanvasActive
+                  ? 'Snap-to-Canvas Active: Magnetically snaps to label outer edges & center lines when dragging. Click to toggle. Hold Alt to suspend.'
+                  : 'Enable Snap-to-Canvas (Magnetic alignment to label borders & midlines)'
+              }
+            >
+              <Target className="w-3 h-3 text-emerald-400" />
+              <span>Canvas Snap</span>
             </button>
 
             {/* Intelligent Object Snapping */}
@@ -1729,9 +1770,31 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                 );
               })()}
 
-              {/* Dynamic Intelligent Object Center Snapping Guide Lines & Badges */}
+              {/* Dynamic Snap-to-Canvas & Intelligent Object Snapping Guide Lines & Badges */}
               {isDragging && activeSnapGuides.map((guide) => {
                 const isVertical = guide.axis === 'x'; // constant x, vertical line
+                const isCanvasCenter = Boolean(guide.isCanvasCenter);
+                const isCanvasEdge = Boolean(guide.isCanvasEdge);
+
+                // Theme selection based on guide type
+                const lineStyle = isCanvasCenter
+                  ? 'bg-cyan-400 shadow-[0_0_12px_rgba(6,182,212,1)]'
+                  : isCanvasEdge
+                  ? 'bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,1)]'
+                  : 'bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.9)]';
+
+                const dotStyle = isCanvasCenter
+                  ? 'bg-cyan-500 border-cyan-100 shadow-[0_0_6px_rgba(6,182,212,0.9)]'
+                  : isCanvasEdge
+                  ? 'bg-emerald-500 border-emerald-100 shadow-[0_0_6px_rgba(16,185,129,0.9)]'
+                  : 'bg-fuchsia-600 border-white shadow-md';
+
+                const badgeBg = isCanvasCenter
+                  ? 'bg-cyan-950/95 text-cyan-200 border-cyan-400/90 shadow-[0_0_14px_rgba(6,182,212,0.4)]'
+                  : isCanvasEdge
+                  ? 'bg-emerald-950/95 text-emerald-200 border-emerald-400/90 shadow-[0_0_14px_rgba(16,185,129,0.4)]'
+                  : 'bg-fuchsia-950/95 text-fuchsia-200 border-fuchsia-400/80 shadow-xl';
+
                 if (isVertical) {
                   const lineXPx = guide.positionMm * pxPerMm;
                   const topPx = Math.max(0, guide.startMm * pxPerMm);
@@ -1749,40 +1812,54 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                         height: `${heightPx}px`,
                       }}
                     >
-                      {/* Vertical Center Guideline */}
-                      <div className="absolute inset-y-0 -left-[1px] w-[2px] bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.9)]" />
+                      {/* Vertical Guideline */}
+                      <div className={`absolute inset-y-0 -left-[1px] w-[2px] ${lineStyle}`} />
 
-                      {/* Source Center Dot */}
+                      {/* Source Indicator Dot */}
                       <div
-                        className="absolute -left-[5px] -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
+                        className={`absolute -left-[5px] -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center z-10 ${dotStyle}`}
                         style={{ top: `${(guide.sourceCenter.y - guide.startMm) * pxPerMm}px` }}
                       >
                         <div className="w-1 h-1 bg-white rounded-full" />
                       </div>
 
-                      {/* Target Center Dot */}
-                      <div
-                        className="absolute -left-[5px] -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
-                        style={{ top: `${(guide.targetCenter.y - guide.startMm) * pxPerMm}px` }}
-                      >
-                        <div className="w-1 h-1 bg-white rounded-full" />
-                      </div>
+                      {/* Target Indicator Dot */}
+                      {!isCanvasEdge && (
+                        <div
+                          className={`absolute -left-[5px] -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center z-10 ${dotStyle}`}
+                          style={{ top: `${(guide.targetCenter.y - guide.startMm) * pxPerMm}px` }}
+                        >
+                          <div className="w-1 h-1 bg-white rounded-full" />
+                        </div>
+                      )}
 
-                      {/* Center Alignment Floating Tag */}
+                      {/* Floating Alignment Badge */}
                       <div
-                        className="absolute left-2.5 -translate-y-1/2 bg-fuchsia-950/95 text-fuchsia-200 border border-fuchsia-400/80 px-2 py-0.5 rounded-md text-[10px] font-mono shadow-xl flex items-center space-x-1.5 whitespace-nowrap z-20 pointer-events-none"
+                        className={`absolute left-2.5 -translate-y-1/2 border px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center space-x-1.5 whitespace-nowrap z-20 pointer-events-none ${badgeBg}`}
                         style={{ top: `${((guide.sourceCenter.y + guide.targetCenter.y) / 2 - guide.startMm) * pxPerMm}px` }}
                       >
-                        <AlignCenter className="w-3 h-3 text-fuchsia-400 shrink-0" />
-                        <span className="font-semibold">Center X: {guide.positionMm.toFixed(1)}mm</span>
-                        {guide.targetName && (
+                        {isCanvasCenter ? (
+                          <Target className="w-3 h-3 text-cyan-400 shrink-0 animate-pulse" />
+                        ) : isCanvasEdge ? (
+                          <Magnet className="w-3 h-3 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlignCenter className="w-3 h-3 text-fuchsia-400 shrink-0" />
+                        )}
+                        <span className="font-bold tracking-tight">
+                          {isCanvasCenter
+                            ? `Canvas Midline: ${guide.positionMm.toFixed(1)}mm`
+                            : isCanvasEdge
+                            ? `${guide.targetName}: ${guide.positionMm.toFixed(1)}mm`
+                            : `Center X: ${guide.positionMm.toFixed(1)}mm`}
+                        </span>
+                        {!isCanvasCenter && !isCanvasEdge && guide.targetName && (
                           <span className="text-fuchsia-300/80 font-normal">({guide.targetName})</span>
                         )}
                       </div>
                     </div>
                   );
                 } else {
-                  // Horizontal Center Guideline (constant y)
+                  // Horizontal Guideline (constant y)
                   const lineYPx = guide.positionMm * pxPerMm;
                   const leftPx = Math.max(0, guide.startMm * pxPerMm);
                   const rightPx = Math.min(labelWidthPx, guide.endMm * pxPerMm);
@@ -1799,33 +1876,47 @@ export const DesignerCanvas: React.FC<DesignerCanvasProps> = ({
                         height: '0px',
                       }}
                     >
-                      {/* Horizontal Center Guideline */}
-                      <div className="absolute inset-x-0 -top-[1px] h-[2px] bg-fuchsia-500 shadow-[0_0_8px_rgba(217,70,239,0.9)]" />
+                      {/* Horizontal Guideline */}
+                      <div className={`absolute inset-x-0 -top-[1px] h-[2px] ${lineStyle}`} />
 
-                      {/* Source Center Dot */}
+                      {/* Source Indicator Dot */}
                       <div
-                        className="absolute -top-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
+                        className={`absolute -top-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center z-10 ${dotStyle}`}
                         style={{ left: `${(guide.sourceCenter.x - guide.startMm) * pxPerMm}px` }}
                       >
                         <div className="w-1 h-1 bg-white rounded-full" />
                       </div>
 
-                      {/* Target Center Dot */}
-                      <div
-                        className="absolute -top-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white bg-fuchsia-600 shadow-md flex items-center justify-center z-10"
-                        style={{ left: `${(guide.targetCenter.x - guide.startMm) * pxPerMm}px` }}
-                      >
-                        <div className="w-1 h-1 bg-white rounded-full" />
-                      </div>
+                      {/* Target Indicator Dot */}
+                      {!isCanvasEdge && (
+                        <div
+                          className={`absolute -top-[5px] -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 flex items-center justify-center z-10 ${dotStyle}`}
+                          style={{ left: `${(guide.targetCenter.x - guide.startMm) * pxPerMm}px` }}
+                        >
+                          <div className="w-1 h-1 bg-white rounded-full" />
+                        </div>
+                      )}
 
-                      {/* Center Alignment Floating Tag */}
+                      {/* Floating Alignment Badge */}
                       <div
-                        className="absolute -top-7 -translate-x-1/2 bg-fuchsia-950/95 text-fuchsia-200 border border-fuchsia-400/80 px-2 py-0.5 rounded-md text-[10px] font-mono shadow-xl flex items-center space-x-1.5 whitespace-nowrap z-20 pointer-events-none"
+                        className={`absolute -top-7 -translate-x-1/2 border px-2 py-0.5 rounded-md text-[10px] font-mono flex items-center space-x-1.5 whitespace-nowrap z-20 pointer-events-none ${badgeBg}`}
                         style={{ left: `${((guide.sourceCenter.x + guide.targetCenter.x) / 2 - guide.startMm) * pxPerMm}px` }}
                       >
-                        <AlignCenterVertical className="w-3 h-3 text-fuchsia-400 shrink-0" />
-                        <span className="font-semibold">Center Y: {guide.positionMm.toFixed(1)}mm</span>
-                        {guide.targetName && (
+                        {isCanvasCenter ? (
+                          <Target className="w-3 h-3 text-cyan-400 shrink-0 animate-pulse" />
+                        ) : isCanvasEdge ? (
+                          <Magnet className="w-3 h-3 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlignCenterVertical className="w-3 h-3 text-fuchsia-400 shrink-0" />
+                        )}
+                        <span className="font-bold tracking-tight">
+                          {isCanvasCenter
+                            ? `Canvas Midline: ${guide.positionMm.toFixed(1)}mm`
+                            : isCanvasEdge
+                            ? `${guide.targetName}: ${guide.positionMm.toFixed(1)}mm`
+                            : `Center Y: ${guide.positionMm.toFixed(1)}mm`}
+                        </span>
+                        {!isCanvasCenter && !isCanvasEdge && guide.targetName && (
                           <span className="text-fuchsia-300/80 font-normal">({guide.targetName})</span>
                         )}
                       </div>

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { computeIntelligentSnap } from '../services/intelligentSnapEngine';
 import { LabelObject } from '../types/label';
 
-describe('Intelligent Object Snapping Engine', () => {
+describe('Intelligent Object & Canvas Snapping Engine', () => {
   const adjacentObj1: LabelObject = {
     id: 'adj-1',
     name: 'Shipping Address',
@@ -149,7 +149,7 @@ describe('Intelligent Object Snapping Engine', () => {
       canvasHeightMm: 150,
       thresholdMm: 1.5,
       enabled: true,
-      snapToCanvasCenter: false,
+      snapToCanvas: false,
     });
 
     expect(result.hasSnappedX).toBe(false);
@@ -159,29 +159,127 @@ describe('Intelligent Object Snapping Engine', () => {
     expect(result.guides.length).toBe(0);
   });
 
-  it('snaps to canvas center when enabled and within threshold', () => {
-    // Canvas center is 100/2 = 50.
-    // Dragged object width = 20. Aligned x = 50 - 10 = 40.
+  it('magnetically snaps to canvas center horizontal and vertical midlines', () => {
+    // Canvas center is (50, 75)
+    // Dragged object width = 20, height = 10 -> aligned x = 50 - 10 = 40, aligned y = 75 - 5 = 70
     const result = computeIntelligentSnap({
       draggedObj: {
         id: 'dragged-1',
         x: 40.7,
-        y: 10,
+        y: 69.4,
         width: 20,
         height: 10,
       },
-      otherObjects: [], // no adjacent objects
+      otherObjects: [], // no sibling objects
       canvasWidthMm: 100,
       canvasHeightMm: 150,
       thresholdMm: 1.5,
       enabled: true,
-      snapToCanvasCenter: true,
+      snapToCanvas: true,
     });
 
     expect(result.hasSnappedX).toBe(true);
     expect(result.x).toBe(40);
+    expect(result.hasSnappedY).toBe(true);
+    expect(result.y).toBe(70);
+
     const xGuide = result.guides.find((g) => g.axis === 'x');
     expect(xGuide?.isCanvasCenter).toBe(true);
+    expect(xGuide?.positionMm).toBe(50);
+
+    const yGuide = result.guides.find((g) => g.axis === 'y');
+    expect(yGuide?.isCanvasCenter).toBe(true);
+    expect(yGuide?.positionMm).toBe(75);
+  });
+
+  it('magnetically snaps to canvas left and top outer edges (0mm)', () => {
+    // Propose raw x = 0.8mm (close to 0), raw y = 0.5mm (close to 0)
+    const result = computeIntelligentSnap({
+      draggedObj: {
+        id: 'dragged-1',
+        x: 0.8,
+        y: 0.5,
+        width: 25,
+        height: 15,
+      },
+      otherObjects: [],
+      canvasWidthMm: 100,
+      canvasHeightMm: 150,
+      thresholdMm: 1.5,
+      enabled: true,
+      snapToCanvas: true,
+    });
+
+    expect(result.hasSnappedX).toBe(true);
+    expect(result.x).toBe(0);
+    expect(result.hasSnappedY).toBe(true);
+    expect(result.y).toBe(0);
+
+    const xGuide = result.guides.find((g) => g.axis === 'x');
+    expect(xGuide?.isCanvasEdge).toBe(true);
+    expect(xGuide?.targetName).toBe('Canvas Left Edge');
+
+    const yGuide = result.guides.find((g) => g.axis === 'y');
+    expect(yGuide?.isCanvasEdge).toBe(true);
+    expect(yGuide?.targetName).toBe('Canvas Top Edge');
+  });
+
+  it('magnetically snaps to canvas right and bottom outer edges', () => {
+    // Canvas dimensions: 100 x 150. Obj size: 20 x 10.
+    // Target right snap: x = 100 - 20 = 80.
+    // Target bottom snap: y = 150 - 10 = 140.
+    const result = computeIntelligentSnap({
+      draggedObj: {
+        id: 'dragged-1',
+        x: 79.4,
+        y: 139.5,
+        width: 20,
+        height: 10,
+      },
+      otherObjects: [],
+      canvasWidthMm: 100,
+      canvasHeightMm: 150,
+      thresholdMm: 1.5,
+      enabled: true,
+      snapToCanvas: true,
+    });
+
+    expect(result.hasSnappedX).toBe(true);
+    expect(result.x).toBe(80);
+    expect(result.hasSnappedY).toBe(true);
+    expect(result.y).toBe(140);
+
+    const xGuide = result.guides.find((g) => g.axis === 'x');
+    expect(xGuide?.isCanvasEdge).toBe(true);
+    expect(xGuide?.targetName).toBe('Canvas Right Edge');
+
+    const yGuide = result.guides.find((g) => g.axis === 'y');
+    expect(yGuide?.isCanvasEdge).toBe(true);
+    expect(yGuide?.targetName).toBe('Canvas Bottom Edge');
+  });
+
+  it('respects snapToCanvas=false by bypassing canvas magnetic boundaries', () => {
+    const result = computeIntelligentSnap({
+      draggedObj: {
+        id: 'dragged-1',
+        x: 0.8,
+        y: 0.5,
+        width: 25,
+        height: 15,
+      },
+      otherObjects: [],
+      canvasWidthMm: 100,
+      canvasHeightMm: 150,
+      thresholdMm: 1.5,
+      enabled: true,
+      snapToCanvas: false,
+      snapToCanvasCenter: false,
+    });
+
+    expect(result.hasSnappedX).toBe(false);
+    expect(result.hasSnappedY).toBe(false);
+    expect(result.x).toBe(0.8);
+    expect(result.y).toBe(0.5);
   });
 
   it('bypasses snapping completely when enabled is false', () => {

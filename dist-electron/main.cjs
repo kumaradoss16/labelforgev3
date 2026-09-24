@@ -24,7 +24,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // electron/main.ts
 var import_electron9 = require("electron");
-var import_path8 = __toESM(require("path"), 1);
+var import_path9 = __toESM(require("path"), 1);
 
 // electron/config/paths.ts
 var import_path = __toESM(require("path"), 1);
@@ -83,6 +83,30 @@ var PathManager = class {
   }
   getCacheDir() {
     return import_path.default.join(this.userDataDir, "cache");
+  }
+  getAllowedRoots() {
+    const roots = [this.userDataDir];
+    try {
+      const docs = import_electron.app.getPath("documents");
+      if (docs) roots.push(docs);
+    } catch {
+      const home = process.env.HOME || process.env.USERPROFILE;
+      if (home) roots.push(import_path.default.join(home, "Documents"));
+    }
+    try {
+      const desktop = import_electron.app.getPath("desktop");
+      if (desktop) roots.push(desktop);
+    } catch {
+      const home = process.env.HOME || process.env.USERPROFILE;
+      if (home) roots.push(import_path.default.join(home, "Desktop"));
+    }
+    try {
+      const temp = import_electron.app.getPath("temp");
+      if (temp) roots.push(temp);
+    } catch {
+      roots.push(process.env.TEMP || "/tmp");
+    }
+    return roots;
   }
   getPreloadPath() {
     return import_path.default.join(__dirname, "preload.cjs");
@@ -298,11 +322,176 @@ var import_electron4 = require("electron");
 
 // electron/services/filesystem/projectStorage.ts
 var import_path4 = __toESM(require("path"), 1);
-var import_fs6 = __toESM(require("fs"), 1);
 
-// electron/services/filesystem/fileManager.ts
+// electron/services/filesystem/recentFiles.ts
 var import_fs4 = __toESM(require("fs"), 1);
 var import_path2 = __toESM(require("path"), 1);
+var RecentProjectsService = class {
+  getStoragePath() {
+    return paths.getRecentFilePath();
+  }
+  ensureDirExists(file) {
+    const dir = import_path2.default.dirname(file);
+    if (!import_fs4.default.existsSync(dir)) {
+      try {
+        import_fs4.default.mkdirSync(dir, { recursive: true });
+      } catch {
+      }
+    }
+  }
+  getRecent() {
+    const file = this.getStoragePath();
+    if (!import_fs4.default.existsSync(file)) {
+      return [];
+    }
+    try {
+      const raw = import_fs4.default.readFileSync(file, "utf-8");
+      const list = JSON.parse(raw);
+      const existing = list.filter((item) => {
+        try {
+          return import_fs4.default.existsSync(item.filePath);
+        } catch {
+          return false;
+        }
+      });
+      return existing.slice(0, appConfig.maxRecentProjects);
+    } catch (err) {
+      logger.error("RecentProjectsService", "Failed to read recent projects", err);
+      return [];
+    }
+  }
+  addRecent(filePath, labelName) {
+    try {
+      const storagePath = this.getStoragePath();
+      this.ensureDirExists(storagePath);
+      const current = this.getRecent();
+      const normalized = import_path2.default.normalize(filePath);
+      const fileName = import_path2.default.basename(normalized);
+      const filtered = current.filter((item) => import_path2.default.normalize(item.filePath) !== normalized);
+      const updated = [
+        {
+          filePath: normalized,
+          fileName,
+          lastOpened: (/* @__PURE__ */ new Date()).toISOString(),
+          labelName: labelName || fileName.replace(/\.lforge$/i, "")
+        },
+        ...filtered
+      ].slice(0, appConfig.maxRecentProjects);
+      import_fs4.default.writeFileSync(storagePath, JSON.stringify(updated, null, 2), "utf-8");
+      logger.info("RecentProjectsService", `Added recent file: ${normalized}`);
+    } catch (err) {
+      logger.error("RecentProjectsService", `Failed to update recent files: ${filePath}`, err);
+    }
+  }
+  clearRecent() {
+    try {
+      const storagePath = this.getStoragePath();
+      this.ensureDirExists(storagePath);
+      import_fs4.default.writeFileSync(storagePath, JSON.stringify([]), "utf-8");
+      logger.info("RecentProjectsService", "Cleared recent projects list");
+    } catch (err) {
+      logger.error("RecentProjectsService", "Failed to clear recent projects", err);
+    }
+  }
+};
+var recentProjects = new RecentProjectsService();
+
+// electron/services/filesystem/atomicFileReplaceService.ts
+var import_fs5 = __toESM(require("fs"), 1);
+var import_path3 = __toESM(require("path"), 1);
+var AtomicFileReplaceService = class {
+  /**
+   * Performs a safe cross-platform atomic write with full verification and backup recovery
+   */
+  async writeAtomic(options) {
+    const { content, targetPath, createBackup = true, verifyFn } = options;
+    const dir = import_path3.default.dirname(targetPath);
+    if (!import_fs5.default.existsSync(dir)) {
+      import_fs5.default.mkdirSync(dir, { recursive: true });
+    }
+    const tempPath = `${targetPath}.${Date.now()}.${Math.floor(Math.random() * 1e4)}.tmp`;
+    const backupPath = `${targetPath}.bak`;
+    try {
+      const fd = import_fs5.default.openSync(tempPath, "w");
+      try {
+        if (typeof content === "string") {
+          import_fs5.default.writeFileSync(fd, content, "utf-8");
+        } else {
+          import_fs5.default.writeFileSync(fd, content);
+        }
+        import_fs5.default.fsyncSync(fd);
+      } finally {
+        import_fs5.default.closeSync(fd);
+      }
+      const tempWritten = import_fs5.default.readFileSync(tempPath, typeof content === "string" ? "utf-8" : void 0);
+      if (verifyFn) {
+        verifyFn(tempWritten);
+      }
+      if (import_fs5.default.existsSync(targetPath)) {
+        if (createBackup) {
+          try {
+            if (import_fs5.default.existsSync(backupPath)) {
+              import_fs5.default.unlinkSync(backupPath);
+            }
+            import_fs5.default.copyFileSync(targetPath, backupPath);
+          } catch (backupErr) {
+            logger.warn("AtomicFileReplaceService", `Failed to create backup: ${backupErr.message}`);
+          }
+        }
+      }
+      try {
+        import_fs5.default.renameSync(tempPath, targetPath);
+      } catch (renameErr) {
+        logger.warn("AtomicFileReplaceService", `fs.renameSync failed (${renameErr.message}), attempting fallback copy`);
+        import_fs5.default.copyFileSync(tempPath, targetPath);
+        import_fs5.default.unlinkSync(tempPath);
+      }
+      if (!import_fs5.default.existsSync(targetPath)) {
+        throw new Error(`Target file ${targetPath} does not exist after replace`);
+      }
+      if (import_fs5.default.existsSync(tempPath)) {
+        try {
+          import_fs5.default.unlinkSync(tempPath);
+        } catch {
+        }
+      }
+      logger.info("AtomicFileReplaceService", `Atomic replace succeeded for ${targetPath}`);
+    } catch (err) {
+      if (import_fs5.default.existsSync(tempPath)) {
+        try {
+          import_fs5.default.unlinkSync(tempPath);
+        } catch {
+        }
+      }
+      logger.error("AtomicFileReplaceService", `Atomic replace failed for ${targetPath}: ${err.message}`);
+      throw err;
+    }
+  }
+  /**
+   * Scans directory for orphaned .tmp files left over from crashes and cleans them up
+   */
+  cleanOrphanedTempFiles(dirPath) {
+    if (!import_fs5.default.existsSync(dirPath)) return;
+    try {
+      const files = import_fs5.default.readdirSync(dirPath);
+      for (const file of files) {
+        if (file.endsWith(".tmp")) {
+          const fullPath = import_path3.default.join(dirPath, file);
+          try {
+            const stats = import_fs5.default.statSync(fullPath);
+            if (Date.now() - stats.mtimeMs > 3e5) {
+              import_fs5.default.unlinkSync(fullPath);
+              logger.info("AtomicFileReplaceService", `Cleaned orphaned temp file ${fullPath}`);
+            }
+          } catch {
+          }
+        }
+      }
+    } catch {
+    }
+  }
+};
+var atomicFileReplace = new AtomicFileReplaceService();
 
 // electron/utils/errors.ts
 var ApplicationError = class _ApplicationError extends Error {
@@ -341,100 +530,6 @@ var ValidationError = class extends ApplicationError {
     this.name = "ValidationError";
   }
 };
-
-// electron/services/filesystem/fileManager.ts
-var FileManager = class {
-  async readFile(filePath) {
-    try {
-      if (!import_fs4.default.existsSync(filePath)) {
-        throw new FileError(`File does not exist: ${filePath}`);
-      }
-      return await import_fs4.default.promises.readFile(filePath, "utf-8");
-    } catch (err) {
-      logger.error("FileManager", `Failed to read file ${filePath}: ${err.message}`);
-      throw new FileError(`Failed to read file: ${err.message}`, { path: filePath });
-    }
-  }
-  async writeFile(filePath, content) {
-    try {
-      const dir = import_path2.default.dirname(filePath);
-      if (!import_fs4.default.existsSync(dir)) {
-        await import_fs4.default.promises.mkdir(dir, { recursive: true });
-      }
-      const tempPath = `${filePath}.${Date.now()}.tmp`;
-      await import_fs4.default.promises.writeFile(tempPath, content, "utf-8");
-      await import_fs4.default.promises.rename(tempPath, filePath);
-      logger.info("FileManager", `Successfully wrote file ${filePath} (${content.length} bytes)`);
-    } catch (err) {
-      logger.error("FileManager", `Failed to write file ${filePath}: ${err.message}`);
-      throw new FileError(`Failed to write file: ${err.message}`, { path: filePath });
-    }
-  }
-  fileExists(filePath) {
-    return import_fs4.default.existsSync(filePath);
-  }
-};
-var fileManager = new FileManager();
-
-// electron/services/filesystem/recentFiles.ts
-var import_fs5 = __toESM(require("fs"), 1);
-var import_path3 = __toESM(require("path"), 1);
-var RecentProjectsService = class {
-  getStoragePath() {
-    return paths.getRecentFilePath();
-  }
-  getRecent() {
-    const file = this.getStoragePath();
-    if (!import_fs5.default.existsSync(file)) {
-      return [];
-    }
-    try {
-      const raw = import_fs5.default.readFileSync(file, "utf-8");
-      const list = JSON.parse(raw);
-      const existing = list.filter((item) => {
-        try {
-          return import_fs5.default.existsSync(item.filePath);
-        } catch {
-          return false;
-        }
-      });
-      return existing.slice(0, appConfig.maxRecentProjects);
-    } catch (err) {
-      logger.error("RecentProjectsService", "Failed to read recent projects", err);
-      return [];
-    }
-  }
-  addRecent(filePath, labelName) {
-    try {
-      const current = this.getRecent();
-      const normalized = import_path3.default.normalize(filePath);
-      const fileName = import_path3.default.basename(normalized);
-      const filtered = current.filter((item) => import_path3.default.normalize(item.filePath) !== normalized);
-      const updated = [
-        {
-          filePath: normalized,
-          fileName,
-          lastOpened: (/* @__PURE__ */ new Date()).toISOString(),
-          labelName: labelName || fileName.replace(/\.lforge$/i, "")
-        },
-        ...filtered
-      ].slice(0, appConfig.maxRecentProjects);
-      import_fs5.default.writeFileSync(this.getStoragePath(), JSON.stringify(updated, null, 2), "utf-8");
-      logger.info("RecentProjectsService", `Added recent file: ${normalized}`);
-    } catch (err) {
-      logger.error("RecentProjectsService", `Failed to update recent files: ${filePath}`, err);
-    }
-  }
-  clearRecent() {
-    try {
-      import_fs5.default.writeFileSync(this.getStoragePath(), JSON.stringify([]), "utf-8");
-      logger.info("RecentProjectsService", "Cleared recent projects list");
-    } catch (err) {
-      logger.error("RecentProjectsService", "Failed to clear recent projects", err);
-    }
-  }
-};
-var recentProjects = new RecentProjectsService();
 
 // src/types/lforge.ts
 function canonicalizeJson(obj) {
@@ -671,7 +766,13 @@ var ProjectStorageService = class {
    */
   async loadProject(filePath) {
     logger.info("ProjectStorageService", `Loading project from ${filePath}`);
-    const content = await fileManager.readFile(filePath);
+    let content;
+    try {
+      const fs10 = await import("fs");
+      content = fs10.readFileSync(filePath, "utf-8");
+    } catch (err) {
+      throw new ProjectError(`Failed to read project file: ${err.message}`, { path: filePath });
+    }
     let parsed;
     try {
       parsed = JSON.parse(content);
@@ -695,19 +796,41 @@ var ProjectStorageService = class {
         });
       }
     }
-    pkg.manifest.checksum = computeDocumentChecksum(pkg.document);
     recentProjects.addRecent(filePath, pkg.manifest.name || pkg.document.name || import_path4.default.basename(filePath));
     return pkg;
   }
   /**
-   * Performs Atomic Save (.tmp -> .lforge, backup .bak) with SHA-256 checksum calculation
+   * Performs Atomic Save with exact pipeline order:
+   * 1. Normalize document
+   * 2. Update document.modified
+   * 3. Normalize objects
+   * 4. Compute SHA-256 checksum on finalized document
+   * 5. Build manifest with computed checksum
+   * 6. Write via AtomicFileReplaceService
+   * 7. Read back and verify written file checksum against payload
+   * 8. Commit
    */
   async saveProject(filePath, pkg) {
     logger.info("ProjectStorageService", `Executing atomic project save to ${filePath}`);
     if (!pkg || !pkg.document) {
       throw new ProjectError("Cannot save empty project payload", { path: filePath });
     }
-    const checksum = computeDocumentChecksum(pkg.document);
+    const normalizedObjects = (pkg.document.objects || []).map((obj) => ({
+      ...obj,
+      rotation: typeof obj.rotation === "number" ? obj.rotation : 0,
+      visible: obj.visible !== false,
+      locked: Boolean(obj.locked),
+      opacity: typeof obj.opacity === "number" ? obj.opacity : 1,
+      zIndex: typeof obj.zIndex === "number" ? obj.zIndex : 1
+    }));
+    const finalizedDoc = {
+      ...pkg.document,
+      schemaVersion: "2.0.0",
+      objects: normalizedObjects,
+      created: pkg.document.created || (/* @__PURE__ */ new Date()).toISOString(),
+      modified: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const checksum = computeDocumentChecksum(finalizedDoc);
     const finalizedPkg = {
       format: "lforge",
       schemaVersion: 2,
@@ -716,11 +839,11 @@ var ProjectStorageService = class {
         extension: ".lforge",
         schemaVersion: 2,
         producerVersion: "LabelForge Studio 3.0.0 Enterprise",
-        templateId: pkg.manifest?.templateId || pkg.document.id || `lft-${Date.now()}`,
-        name: pkg.manifest?.name || pkg.document.name || import_path4.default.basename(filePath, ".lforge"),
-        createdAt: pkg.manifest?.createdAt || pkg.document.created || (/* @__PURE__ */ new Date()).toISOString(),
-        modifiedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        author: pkg.manifest?.author || pkg.document.author || "LabelForge Engineer",
+        templateId: pkg.manifest?.templateId || finalizedDoc.id || `lft-${Date.now()}`,
+        name: pkg.manifest?.name || finalizedDoc.name || import_path4.default.basename(filePath, ".lforge"),
+        createdAt: pkg.manifest?.createdAt || finalizedDoc.created,
+        modifiedAt: finalizedDoc.modified,
+        author: pkg.manifest?.author || finalizedDoc.author || "LabelForge Engineer",
         checksum,
         requiredFonts: pkg.manifest?.requiredFonts || ["Inter"],
         requiredSymbologies: pkg.manifest?.requiredSymbologies || [],
@@ -731,40 +854,34 @@ var ProjectStorageService = class {
           allowExternalDataBinding: true
         }
       },
-      document: {
-        ...pkg.document,
-        modified: (/* @__PURE__ */ new Date()).toISOString()
-      },
+      document: finalizedDoc,
       assets: pkg.assets || {},
       previews: pkg.previews || {}
     };
     const jsonString = JSON.stringify(finalizedPkg, null, 2);
-    const tempPath = `${filePath}.tmp`;
-    const backupPath = `${filePath}.bak`;
     try {
-      await fileManager.writeFile(tempPath, jsonString);
-      const tempContent = await fileManager.readFile(tempPath);
-      const tempParsed = JSON.parse(tempContent);
-      if (!tempParsed.manifest || tempParsed.manifest.checksum !== checksum) {
-        throw new Error("Integrity verification failed on temporary file write");
-      }
-      if (import_fs6.default.existsSync(filePath)) {
-        try {
-          import_fs6.default.copyFileSync(filePath, backupPath);
-        } catch (backupErr) {
-          logger.warn("ProjectStorageService", `Could not create backup file: ${backupErr.message}`);
+      await atomicFileReplace.writeAtomic({
+        content: jsonString,
+        targetPath: filePath,
+        createBackup: true,
+        verifyFn: (readBackContent) => {
+          const str = typeof readBackContent === "string" ? readBackContent : readBackContent.toString("utf-8");
+          const tempParsed = JSON.parse(str);
+          if (!tempParsed.manifest || !tempParsed.document) {
+            throw new Error("Read-back verification failed: missing manifest or document structure");
+          }
+          if (tempParsed.manifest.checksum !== checksum) {
+            throw new Error(`Read-back manifest checksum mismatch: ${tempParsed.manifest.checksum} vs expected ${checksum}`);
+          }
+          const recomputedOnReadBack = computeDocumentChecksum(tempParsed.document);
+          if (recomputedOnReadBack !== checksum) {
+            throw new Error(`Read-back document checksum mismatch: computed ${recomputedOnReadBack} vs claimed ${checksum}`);
+          }
         }
-      }
-      import_fs6.default.renameSync(tempPath, filePath);
+      });
       recentProjects.addRecent(filePath, finalizedPkg.manifest.name);
       logger.info("ProjectStorageService", `Project saved & verified successfully at ${filePath}`);
     } catch (err) {
-      if (import_fs6.default.existsSync(tempPath)) {
-        try {
-          import_fs6.default.unlinkSync(tempPath);
-        } catch {
-        }
-      }
       logger.error("ProjectStorageService", `Atomic save failed: ${err.message}`);
       throw new ProjectError(`Failed to save project file: ${err.message}`, { path: filePath });
     }
@@ -774,19 +891,28 @@ var projectStorage = new ProjectStorageService();
 
 // electron/utils/validation.ts
 var import_path5 = __toESM(require("path"), 1);
-function validateFilePath(filePath, allowedExtensions = [".lforge", ".json", ".txt"]) {
+function validateFilePath(filePath, allowedExtensions = [".lforge", ".json", ".txt"], allowedRoots) {
   if (!filePath || typeof filePath !== "string") {
     throw new ValidationError("File path must be a non-empty string");
   }
   if (filePath.indexOf("\0") !== -1) {
     throw new ValidationError("File path contains invalid null byte characters");
   }
-  const normalized = import_path5.default.normalize(filePath);
-  const ext = import_path5.default.extname(normalized).toLowerCase();
+  const resolved = import_path5.default.resolve(filePath);
+  if (allowedRoots && allowedRoots.length > 0) {
+    const isInsideAllowedRoot = allowedRoots.some((root) => {
+      const resolvedRoot = import_path5.default.resolve(root);
+      return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + import_path5.default.sep);
+    });
+    if (!isInsideAllowedRoot) {
+      throw new ValidationError("File path is outside permitted directories");
+    }
+  }
+  const ext = import_path5.default.extname(resolved).toLowerCase();
   if (allowedExtensions.length > 0 && !allowedExtensions.includes(ext)) {
     throw new ValidationError(`Unsupported file extension '${ext}'. Allowed: ${allowedExtensions.join(", ")}`);
   }
-  return normalized;
+  return resolved;
 }
 function validatePrintRequest(request) {
   if (!request || typeof request !== "object") {
@@ -809,6 +935,7 @@ function registerProjectHandlers() {
   import_electron4.ipcMain.handle("project:open", async (_event, filePath) => {
     try {
       let targetPath = filePath;
+      let isDialog = false;
       if (!targetPath) {
         const win = import_electron4.BrowserWindow.getFocusedWindow() || import_electron4.BrowserWindow.getAllWindows()[0];
         const res = await import_electron4.dialog.showOpenDialog(win, {
@@ -824,8 +951,13 @@ function registerProjectHandlers() {
           return { success: false, error: "Canceled by user" };
         }
         targetPath = res.filePaths[0];
+        isDialog = true;
       }
-      const validPath = validateFilePath(targetPath, [".lforge", ".json"]);
+      const validPath = validateFilePath(
+        targetPath,
+        [".lforge", ".json"],
+        paths.getAllowedRoots()
+      );
       const pkg = await projectStorage.loadProject(validPath);
       return {
         success: true,
@@ -843,6 +975,7 @@ function registerProjectHandlers() {
   import_electron4.ipcMain.handle("project:save", async (_event, projectData, filePath) => {
     try {
       let targetPath = filePath;
+      let isDialog = false;
       if (!targetPath) {
         const win = import_electron4.BrowserWindow.getFocusedWindow() || import_electron4.BrowserWindow.getAllWindows()[0];
         const res = await import_electron4.dialog.showSaveDialog(win, {
@@ -854,8 +987,13 @@ function registerProjectHandlers() {
           return { success: false, error: "Canceled by user" };
         }
         targetPath = res.filePath;
+        isDialog = true;
       }
-      const validPath = validateFilePath(targetPath, [".lforge", ".json"]);
+      const validPath = validateFilePath(
+        targetPath,
+        [".lforge", ".json"],
+        paths.getAllowedRoots()
+      );
       await projectStorage.saveProject(validPath, projectData);
       return {
         success: true,
@@ -880,7 +1018,7 @@ function registerProjectHandlers() {
       if (res.canceled || !res.filePath) {
         return { success: false, error: "Canceled by user" };
       }
-      const validPath = validateFilePath(res.filePath, [".lforge", ".json"]);
+      const validPath = validateFilePath(res.filePath, [".lforge", ".json"], paths.getAllowedRoots());
       await projectStorage.saveProject(validPath, projectData);
       return {
         success: true,
@@ -910,7 +1048,7 @@ var import_electron6 = require("electron");
 var import_electron5 = require("electron");
 
 // electron/services/printer/windowsRawSpooler.ts
-var import_fs7 = __toESM(require("fs"), 1);
+var import_fs6 = __toESM(require("fs"), 1);
 var import_path6 = __toESM(require("path"), 1);
 var import_child_process = require("child_process");
 var import_util = require("util");
@@ -919,9 +1057,9 @@ var WindowsRawSpoolerService = class {
   spoolDir;
   constructor() {
     this.spoolDir = import_path6.default.join(paths.getAppDataDir(), "spool");
-    if (!import_fs7.default.existsSync(this.spoolDir)) {
+    if (!import_fs6.default.existsSync(this.spoolDir)) {
       try {
-        import_fs7.default.mkdirSync(this.spoolDir, { recursive: true });
+        import_fs6.default.mkdirSync(this.spoolDir, { recursive: true });
       } catch (err) {
         logger.warn("WindowsRawSpoolerService", `Could not create spool directory: ${err.message}`);
       }
@@ -950,11 +1088,34 @@ var WindowsRawSpoolerService = class {
         errorMessage: "RAW printer payload is empty"
       };
     }
+    if (process.platform === "win32") {
+      try {
+        const { stdout } = await execFileAsync("powershell", [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          "Get-CimInstance Win32_Printer | Select-Object -ExpandProperty Name"
+        ]);
+        const systemPrinters = stdout.split(/\r?\n/).map((p) => p.trim()).filter(Boolean);
+        if (systemPrinters.length > 0 && !systemPrinters.includes(printerName)) {
+          return {
+            success: false,
+            printerName,
+            bytesWritten: 0,
+            errorCode: "ERR_PRINTER_NOT_FOUND",
+            errorMessage: `Target printer "${printerName}" was not found among installed system printers.`
+          };
+        }
+      } catch (err) {
+        logger.warn("WindowsRawSpoolerService", `Could not fetch installed system printers for validation: ${err.message}`);
+      }
+    }
     const jobId = `raw-${Date.now()}-${Math.floor(Math.random() * 1e3)}`;
     const tempPrnFile = import_path6.default.join(this.spoolDir, `${jobId}.prn`);
     logger.info("WindowsRawSpoolerService", `Dispatching ${bufferPayload.length} RAW bytes to printer "${printerName}" [Job ID: ${jobId}]`);
     try {
-      import_fs7.default.writeFileSync(tempPrnFile, bufferPayload);
+      import_fs6.default.writeFileSync(tempPrnFile, bufferPayload);
     } catch (err) {
       logger.error("WindowsRawSpoolerService", `Failed to write spool file: ${err.message}`);
       return {
@@ -969,9 +1130,9 @@ var WindowsRawSpoolerService = class {
       try {
         const psScript = `
 $ErrorActionPreference = 'Stop'
-$printer = ${JSON.stringify(printerName)}
-$filePath = ${JSON.stringify(tempPrnFile)}
-$docTitle = ${JSON.stringify(jobName)}
+$printer = $args[0]
+$filePath = $args[1]
+$docTitle = $args[2]
 
 $code = @"
 using System;
@@ -1037,9 +1198,9 @@ if ($res) {
 }
 `;
         const psFile = import_path6.default.join(this.spoolDir, `${jobId}.ps1`);
-        import_fs7.default.writeFileSync(psFile, psScript, "utf-8");
+        import_fs6.default.writeFileSync(psFile, psScript, "utf-8");
         try {
-          const { stdout } = await execFileAsync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", psFile], {
+          const { stdout } = await execFileAsync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", psFile, printerName, tempPrnFile, jobName], {
             timeout: 1e4
           });
           this.safeUnlink(psFile);
@@ -1088,9 +1249,9 @@ if ($res) {
     }
   }
   safeUnlink(filePath) {
-    if (import_fs7.default.existsSync(filePath)) {
+    if (import_fs6.default.existsSync(filePath)) {
       try {
-        import_fs7.default.unlinkSync(filePath);
+        import_fs6.default.unlinkSync(filePath);
       } catch {
       }
     }
@@ -1218,21 +1379,71 @@ var windowsPrinter = new WindowsPrinterAdapter();
 var import_net = __toESM(require("net"), 1);
 var IPV4_REGEX = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
 var HOSTNAME_REGEX = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/;
+function normalizeToIPv4(host) {
+  const clean = host.trim().toLowerCase();
+  if (/^0x[0-9a-f]{8}$/.test(clean)) {
+    const num = parseInt(clean, 16);
+    return `${num >> 24 & 255}.${num >> 16 & 255}.${num >> 8 & 255}.${num & 255}`;
+  }
+  if (/^\d{8,10}$/.test(clean)) {
+    const num = parseInt(clean, 10);
+    if (num >= 0 && num <= 4294967295) {
+      return `${num >>> 24 & 255}.${num >>> 16 & 255}.${num >>> 8 & 255}.${num & 255}`;
+    }
+  }
+  if (/^0[0-7]{1,3}\.0[0-7]{1,3}\.0[0-7]{1,3}\.0[0-7]{1,3}$/.test(clean)) {
+    const parts = clean.split(".").map((p) => parseInt(p, 8));
+    return parts.join(".");
+  }
+  if (IPV4_REGEX.test(clean)) {
+    return clean;
+  }
+  return null;
+}
 function validateNetworkDestination(host, port) {
   if (!host || typeof host !== "string" || host.trim() === "") {
     return { valid: false, error: "Network printer host IP or hostname is required" };
   }
-  const cleanHost = host.trim();
+  let cleanHost = host.trim().toLowerCase();
+  if (cleanHost.startsWith("[") && cleanHost.endsWith("]")) {
+    cleanHost = cleanHost.slice(1, -1);
+  }
   if (/[;&|`<>\$\\]/.test(cleanHost) || cleanHost.includes("..")) {
     return { valid: false, error: "Invalid characters detected in printer hostname or IP address" };
   }
+  if (cleanHost === "::1" || cleanHost === "0:0:0:0:0:0:0:1" || cleanHost.startsWith("::ffff:127.")) {
+    return { valid: false, error: "Restricted network destination: Loopback IPv6 addresses are not permitted." };
+  }
+  const normalizedIPv4 = normalizeToIPv4(cleanHost);
+  const ipToCheck = normalizedIPv4 || cleanHost;
   if (/^[\d\.]+$/.test(cleanHost)) {
-    if (!IPV4_REGEX.test(cleanHost)) {
+    if (!IPV4_REGEX.test(ipToCheck)) {
       return { valid: false, error: `Invalid IP address or hostname format: "${cleanHost}"` };
+    }
+  }
+  if (IPV4_REGEX.test(ipToCheck)) {
+    const octets = ipToCheck.split(".").map(Number);
+    if (octets[0] === 0) {
+      return { valid: false, error: "Restricted network destination: 0.0.0.0 network is not a valid printer target." };
+    }
+    if (octets[0] === 127) {
+      return { valid: false, error: "Restricted network destination: Loopback 127.0.0.0/8 addresses are not permitted." };
+    }
+    if (octets[0] === 169 && octets[1] === 254 && octets[2] === 169) {
+      return { valid: false, error: "Restricted network destination: Cloud metadata endpoint (169.254.169.x) is strictly blocked." };
+    }
+    if (octets[0] >= 224 && octets[0] <= 239) {
+      return { valid: false, error: "Restricted network destination: Multicast addresses are not valid printer targets." };
+    }
+    if (ipToCheck === "255.255.255.255") {
+      return { valid: false, error: "Restricted network destination: Broadcast address is not a valid printer target." };
     }
   } else {
     if (!HOSTNAME_REGEX.test(cleanHost)) {
       return { valid: false, error: `Invalid IP address or hostname format: "${cleanHost}"` };
+    }
+    if (cleanHost === "localhost" || cleanHost.endsWith(".localhost")) {
+      return { valid: false, error: "Restricted network destination: Localhost is not a valid network printer target." };
     }
   }
   const numericPort = port !== void 0 ? Number(port) : 9100;
@@ -1627,32 +1838,109 @@ var BarTenderPrinterAdapter = class {
 var bartenderPrinter = new BarTenderPrinterAdapter();
 
 // electron/services/system/auditService.ts
-var import_fs8 = __toESM(require("fs"), 1);
+var import_fs7 = __toESM(require("fs"), 1);
 var import_path7 = __toESM(require("path"), 1);
+var import_crypto = __toESM(require("crypto"), 1);
 var AuditService = class {
   auditFilePath = "";
   constructor() {
     this.auditFilePath = import_path7.default.join(paths.getAppDataDir(), "audit.jsonl");
+    const integrity = this.verifyIntegrity();
+    if (!integrity.isValid) {
+      logger.error("AuditService", `!!! SECURITY ALARM: AUDIT TRAIL TAMPERING DETECTED !!! ${integrity.message}`);
+    } else {
+      logger.info("AuditService", "Audit trail cryptographic integrity verified successfully.");
+    }
+  }
+  calculateRecordHash(record) {
+    const dataString = JSON.stringify({
+      id: record.id,
+      timestamp: record.timestamp,
+      action: record.action,
+      user: record.user,
+      role: record.role,
+      resource: record.resource,
+      result: record.result,
+      details: record.details || null,
+      errorMessage: record.errorMessage || null,
+      previousHash: record.previousHash
+    });
+    return import_crypto.default.createHash("sha256").update(dataString).digest("hex");
+  }
+  getLastRecordHash() {
+    if (!import_fs7.default.existsSync(this.auditFilePath)) return "genesis";
+    try {
+      const content = import_fs7.default.readFileSync(this.auditFilePath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      if (lines.length === 0) return "genesis";
+      const lastRecord = JSON.parse(lines[lines.length - 1]);
+      return lastRecord.hash || "genesis";
+    } catch {
+      return "genesis";
+    }
+  }
+  verifyIntegrity() {
+    if (!import_fs7.default.existsSync(this.auditFilePath)) return { isValid: true };
+    try {
+      const content = import_fs7.default.readFileSync(this.auditFilePath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      let expectedPrevHash = "genesis";
+      for (let i = 0; i < lines.length; i++) {
+        const record = JSON.parse(lines[i]);
+        if (record.previousHash !== expectedPrevHash) {
+          return {
+            isValid: false,
+            errorIndex: i,
+            message: `Hash-chain mismatch at index ${i}. Expected previous hash "${expectedPrevHash}", but found "${record.previousHash}".`
+          };
+        }
+        const calculatedHash = this.calculateRecordHash(record);
+        if (record.hash !== calculatedHash) {
+          return {
+            isValid: false,
+            errorIndex: i,
+            message: `Record hash tampering detected at index ${i}. Expected hash "${calculatedHash}", but record contains "${record.hash}".`
+          };
+        }
+        expectedPrevHash = record.hash;
+      }
+      return { isValid: true };
+    } catch (err) {
+      return { isValid: false, message: `Integrity check failed to execute: ${err.message}` };
+    }
   }
   recordEvent(record) {
-    const fullRecord = {
+    const previousHash = this.getLastRecordHash();
+    const partialRecord = {
       id: `audit-${Date.now()}-${Math.floor(Math.random() * 1e3)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      ...record
+      action: record.action,
+      user: record.user,
+      role: record.role,
+      resource: record.resource,
+      result: record.result,
+      details: record.details,
+      errorMessage: record.errorMessage,
+      previousHash
+    };
+    const hash = this.calculateRecordHash(partialRecord);
+    const fullRecord = {
+      ...partialRecord,
+      hash
     };
     logger.info("AuditService", `[AUDIT] ${fullRecord.action} (${fullRecord.result}) by ${fullRecord.user}`);
     try {
       const line = JSON.stringify(fullRecord) + "\n";
-      import_fs8.default.appendFileSync(this.auditFilePath, line, "utf-8");
+      import_fs7.default.appendFileSync(this.auditFilePath, line, "utf-8");
     } catch (err) {
       logger.error("AuditService", `Failed to write audit event to disk: ${err.message}`);
     }
     return fullRecord;
   }
   getRecentRecords(limit = 100) {
-    if (!import_fs8.default.existsSync(this.auditFilePath)) return [];
+    if (!import_fs7.default.existsSync(this.auditFilePath)) return [];
     try {
-      const content = import_fs8.default.readFileSync(this.auditFilePath, "utf-8");
+      const content = import_fs7.default.readFileSync(this.auditFilePath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       const records = [];
       for (let i = lines.length - 1; i >= 0 && records.length < limit; i--) {
@@ -1668,6 +1956,39 @@ var AuditService = class {
   }
 };
 var auditService = new AuditService();
+
+// electron/config/permissions.ts
+var PRIVILEGED_ACTIONS = {
+  PRINT: "printer:print",
+  TEST_PRINT: "printer:test",
+  SAVE_PROJECT: "project:save",
+  SAVE_AS_PROJECT: "project:save-as"
+};
+var ROLE_PERMISSIONS = {
+  SYSTEM_ADMIN: [
+    PRIVILEGED_ACTIONS.PRINT,
+    PRIVILEGED_ACTIONS.TEST_PRINT,
+    PRIVILEGED_ACTIONS.SAVE_PROJECT,
+    PRIVILEGED_ACTIONS.SAVE_AS_PROJECT
+  ],
+  PRINT_MANAGER: [
+    PRIVILEGED_ACTIONS.PRINT,
+    PRIVILEGED_ACTIONS.TEST_PRINT,
+    PRIVILEGED_ACTIONS.SAVE_PROJECT,
+    PRIVILEGED_ACTIONS.SAVE_AS_PROJECT
+  ],
+  OPERATOR: [
+    PRIVILEGED_ACTIONS.PRINT,
+    PRIVILEGED_ACTIONS.TEST_PRINT
+  ],
+  VIEWER: []
+  // Viewer has no write/action permissions
+};
+function checkPermission(role, action) {
+  if (!role) return false;
+  const permissions = ROLE_PERMISSIONS[role.toUpperCase()] || [];
+  return permissions.includes(action);
+}
 
 // electron/ipc/printer/printerHandlers.ts
 function registerPrinterHandlers() {
@@ -1688,15 +2009,33 @@ function registerPrinterHandlers() {
   });
   import_electron6.ipcMain.handle("printer:print", async (_event, request) => {
     logger.info("PrinterHandlers", `Received print request for printer "${request.printerName}" (type: ${request.printerType})`);
+    const identity = request.identity || { userId: "default-op", userName: "Default Operator", role: "OPERATOR" };
     try {
       validatePrintRequest(request);
+      if (!checkPermission(identity.role, PRIVILEGED_ACTIONS.PRINT)) {
+        auditService.recordEvent({
+          action: "PRINT_JOB_REQUESTED",
+          user: identity.userName,
+          role: identity.role,
+          resource: request.printerName || "Unknown",
+          result: "DENIED",
+          errorMessage: `ERR_FORBIDDEN: User does not have ${PRIVILEGED_ACTIONS.PRINT} permission.`
+        });
+        return {
+          success: false,
+          error: {
+            code: "ERR_FORBIDDEN",
+            message: `User role '${identity.role}' does not have permission to print.`
+          }
+        };
+      }
       if (request.networkHost) {
         const netVal = validateNetworkDestination(request.networkHost, request.networkPort);
         if (!netVal.valid) {
           auditService.recordEvent({
             action: "PRINT_JOB_REQUESTED",
-            user: "Operator",
-            role: "OPERATOR",
+            user: identity.userName,
+            role: identity.role,
             resource: request.printerName || "Network Printer",
             result: "FAILURE",
             errorMessage: netVal.error
@@ -1744,8 +2083,8 @@ function registerPrinterHandlers() {
       }
       auditService.recordEvent({
         action: "PRINT_JOB_REQUESTED",
-        user: "Operator",
-        role: "OPERATOR",
+        user: identity.userName,
+        role: identity.role,
         resource: request.printerName,
         result: result.success ? "SUCCESS" : "FAILURE",
         details: {
@@ -1761,8 +2100,8 @@ function registerPrinterHandlers() {
       logger.error("PrinterHandlers", `Print job dispatch error: ${err.message}`);
       auditService.recordEvent({
         action: "PRINT_JOB_REQUESTED",
-        user: "Operator",
-        role: "OPERATOR",
+        user: identity.userName,
+        role: identity.role,
         resource: request.printerName || "Unknown",
         result: "FAILURE",
         errorMessage: err.message
@@ -1776,9 +2115,27 @@ function registerPrinterHandlers() {
       };
     }
   });
-  import_electron6.ipcMain.handle("printer:test", async (_event, printerName, protocol = "zpl") => {
+  import_electron6.ipcMain.handle("printer:test", async (_event, printerName, protocol = "zpl", identityArg) => {
     logger.info("PrinterHandlers", `Test print triggered for ${printerName} with protocol ${protocol}`);
+    const identity = identityArg || { userId: "default-op", userName: "Default Operator", role: "OPERATOR" };
     try {
+      if (!checkPermission(identity.role, PRIVILEGED_ACTIONS.TEST_PRINT)) {
+        auditService.recordEvent({
+          action: "TEST_PRINT_DISPATCHED",
+          user: identity.userName,
+          role: identity.role,
+          resource: printerName || "Unknown",
+          result: "DENIED",
+          errorMessage: `ERR_FORBIDDEN: User does not have ${PRIVILEGED_ACTIONS.TEST_PRINT} permission.`
+        });
+        return {
+          success: false,
+          error: {
+            code: "ERR_FORBIDDEN",
+            message: `User role '${identity.role}' does not have permission to run test prints.`
+          }
+        };
+      }
       const proto = protocol.toLowerCase();
       let res;
       if (proto === "tspl") {
@@ -1800,8 +2157,8 @@ function registerPrinterHandlers() {
       }
       auditService.recordEvent({
         action: "TEST_PRINT_DISPATCHED",
-        user: "Operator",
-        role: "OPERATOR",
+        user: identity.userName,
+        role: identity.role,
         resource: printerName,
         result: res.success ? "SUCCESS" : "FAILURE",
         details: { protocol },
@@ -1812,8 +2169,8 @@ function registerPrinterHandlers() {
       logger.error("PrinterHandlers", `Test print failed: ${err.message}`);
       auditService.recordEvent({
         action: "TEST_PRINT_DISPATCHED",
-        user: "Operator",
-        role: "OPERATOR",
+        user: identity.userName,
+        role: identity.role,
         resource: printerName,
         result: "FAILURE",
         errorMessage: err.message
@@ -1831,11 +2188,49 @@ function registerPrinterHandlers() {
 
 // electron/ipc/files/fileHandlers.ts
 var import_electron7 = require("electron");
+
+// electron/services/filesystem/fileManager.ts
+var import_fs8 = __toESM(require("fs"), 1);
+var import_path8 = __toESM(require("path"), 1);
+var FileManager = class {
+  async readFile(filePath) {
+    try {
+      if (!import_fs8.default.existsSync(filePath)) {
+        throw new FileError(`File does not exist: ${filePath}`);
+      }
+      return await import_fs8.default.promises.readFile(filePath, "utf-8");
+    } catch (err) {
+      logger.error("FileManager", `Failed to read file ${filePath}: ${err.message}`);
+      throw new FileError(`Failed to read file: ${err.message}`, { path: filePath });
+    }
+  }
+  async writeFile(filePath, content) {
+    try {
+      const dir = import_path8.default.dirname(filePath);
+      if (!import_fs8.default.existsSync(dir)) {
+        await import_fs8.default.promises.mkdir(dir, { recursive: true });
+      }
+      const tempPath = `${filePath}.${Date.now()}.tmp`;
+      await import_fs8.default.promises.writeFile(tempPath, content, "utf-8");
+      await import_fs8.default.promises.rename(tempPath, filePath);
+      logger.info("FileManager", `Successfully wrote file ${filePath} (${content.length} bytes)`);
+    } catch (err) {
+      logger.error("FileManager", `Failed to write file ${filePath}: ${err.message}`);
+      throw new FileError(`Failed to write file: ${err.message}`, { path: filePath });
+    }
+  }
+  fileExists(filePath) {
+    return import_fs8.default.existsSync(filePath);
+  }
+};
+var fileManager = new FileManager();
+
+// electron/ipc/files/fileHandlers.ts
 function registerFileHandlers() {
   import_electron7.ipcMain.handle("file:exists", async (_event, filePath) => {
     try {
       if (!filePath || typeof filePath !== "string") return false;
-      const valid = validateFilePath(filePath, [".lforge", ".json", ".prn", ".txt"]);
+      const valid = validateFilePath(filePath, [".lforge", ".json", ".prn", ".txt"], paths.getAllowedRoots());
       return fileManager.fileExists(valid);
     } catch {
       return false;
@@ -1934,7 +2329,7 @@ if (!gotTheLock) {
 }
 function createMainWindow() {
   logger.info("Main", "Creating desktop MainWindow...");
-  const preloadScript = import_path8.default.join(__dirname, "preload.cjs");
+  const preloadScript = import_path9.default.join(__dirname, "preload.cjs");
   const isFrameless = !process.env.DEV_WINDOW_FRAME;
   mainWindow = new import_electron9.BrowserWindow({
     width: appConfig.window.defaultWidth,
@@ -1950,7 +2345,7 @@ function createMainWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       preload: preloadScript
     }
   });
@@ -1999,7 +2394,7 @@ function createMainWindow() {
   return mainWindow;
 }
 function loadDistFile(win) {
-  const indexPath = import_path8.default.join(import_electron9.app.getAppPath(), "dist", "index.html");
+  const indexPath = import_path9.default.join(import_electron9.app.getAppPath(), "dist", "index.html");
   logger.info("Main", `Loading packaged index.html: ${indexPath}`);
   win.loadFile(indexPath).catch((err) => {
     logger.error("Main", `Failed to load packaged index.html: ${err.message}`);

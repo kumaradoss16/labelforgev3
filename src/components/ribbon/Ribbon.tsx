@@ -87,6 +87,8 @@ interface RibbonProps {
   setSnapToGuides?: (val: boolean) => void;
   smartSnapping?: boolean;
   setSmartSnapping?: (val: boolean) => void;
+  snapToCanvas?: boolean;
+  setSnapToCanvas?: (val: boolean) => void;
   // Database record stepping
   recordIndex?: number;
   totalRecords?: number;
@@ -161,6 +163,8 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
   const setSnapToGuides = props.setSnapToGuides ?? (() => {});
   const smartSnapping = props.smartSnapping ?? true;
   const setSmartSnapping = props.setSmartSnapping ?? (() => {});
+  const snapToCanvas = props.snapToCanvas ?? true;
+  const setSnapToCanvas = props.setSnapToCanvas ?? (() => {});
   const zoom = props.zoom ?? 1.25;
   const setZoom = props.setZoom ?? (() => {});
   const unit = props.unit ?? 'mm';
@@ -214,7 +218,7 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
       </div>
 
       {/* 2. Ribbon Content Ribbon Strip */}
-      <div className="h-24 px-3 py-1.5 flex items-stretch space-x-3 overflow-x-auto text-xs">
+      <div className="h-24 px-3 py-1.5 flex items-stretch space-x-3 overflow-x-auto scrollbar-thin text-xs">
         {/* ======================= HOME TAB ======================= */}
         {activeTab === 'home' && (
           <>
@@ -854,7 +858,16 @@ export const Ribbon: React.FC<RibbonProps> = (props) => {
                 />
                 <span>Snap Guides</span>
               </label>
-              <label className="flex items-center space-x-1 cursor-pointer text-xs">
+              <label className="flex items-center space-x-1 cursor-pointer text-xs" title="Magnetically snaps objects to label outer edges and center lines when dragging">
+                <input
+                  type="checkbox"
+                  checked={snapToCanvas}
+                  onChange={(e) => setSnapToCanvas?.(e.target.checked)}
+                  className="rounded bg-[#1b1d24] border-gray-600 text-emerald-600"
+                />
+                <span className="text-emerald-300 font-medium">Snap Canvas</span>
+              </label>
+              <label className="flex items-center space-x-1 cursor-pointer text-xs" title="Magnetically snaps objects to center lines of adjacent sibling elements">
                 <input
                   type="checkbox"
                   checked={smartSnapping}

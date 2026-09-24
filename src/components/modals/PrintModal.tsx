@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   Printer,
@@ -9,20 +9,30 @@ import {
   RefreshCw,
   Server,
   Info,
-  ShieldAlert
+  ShieldAlert,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Layers,
+  FileText,
+  Barcode as BarcodeIcon,
+  QrCode,
+  Image as ImageIcon,
+  Square,
+  Sliders,
+  Check
 } from 'lucide-react';
 import { LabelDocument } from '../../types/label';
 import { PrinterProfile, PrintJob, UserRole, BarTenderTemplateMetadata, VIRTUAL_FALLBACK_PRINTER } from '../../types/printer';
 import { DataSourceDefinition, SerializationCounter } from '../../types/database';
 import { runPreflightValidation } from '../../services/preflightValidator';
-import {
-  checkUserPermission,
-} from '../../services/barTenderPrintService';
+import { checkUserPermission } from '../../services/barTenderPrintService';
 import { isDesktopApp, desktopPrintLabel } from '../../services/desktopBridge';
 import { generatePrinterCode } from '../../services/printerCodeGenerator';
 import { resolveIPCPrinterType } from '../../services/printerLanguageMapper';
 import { extractNetworkHostPort } from '../../services/printQueueManager';
 import { useIdentity } from '../../context/IdentityContext';
+import { renderLabelObjectContent, MM_TO_PX } from '../../services/renderObjectContent';
 
 interface PrintModalProps {
   isOpen: boolean;
@@ -65,13 +75,22 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dispatchSuccess, setDispatchSuccess] = useState<{ id: string; status: string; note: string } | null>(null);
 
-  // Template variables state for on-demand values
+  // Preview interactive state
+  const [previewZoom, setPreviewZoom] = useState<number>(1.0);
+  const [previewMode, setPreviewMode] = useState<'wysiwyg' | 'merged'>('wysiwyg');
+  const [showMargins, setShowMargins] = useState<boolean>(true);
+  const [showInspector, setShowInspector] = useState<boolean>(false);
+
+  // Template variables state for on-demand values & database simulation
   const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({
     Batch_Number: 'LOT-2026-X49',
     Serial_Number: 'SN-004092',
     Product_Code: 'MED-99410-B',
     Order_Number: 'ORD-881904',
     Destination_Hub: 'Frankfurt Central Hub (FRA-02)',
+    Lot_Number: 'LOT-882194',
+    SERIAL: '100492',
+    DATE_YYMMDD: new Date().toISOString().slice(2, 10).replace(/-/g, ''),
   });
 
   const activePrinter = printers.find(p => p.id === activePrinterId) || printers[0] || VIRTUAL_FALLBACK_PRINTER;
@@ -84,6 +103,14 @@ export const PrintModal: React.FC<PrintModalProps> = ({
   const activeRole: UserRole = (currentUserRole as UserRole) || 'OPERATOR';
   const isPrinterOffline = activePrinter.status === 'Offline' || activePrinter.isEnabled === false;
   const permission = checkUserPermission(activeRole, 'PRINT', activePrinter);
+
+  // Calculate dynamic merged record for WYSIWYG preview
+  const effectiveActiveRecord = useMemo(() => {
+    if (previewMode === 'merged') {
+      return templateVariables;
+    }
+    return dataSource?.records?.[0] || templateVariables;
+  }, [previewMode, templateVariables, dataSource]);
 
   // Generate authentic raw printer code based on printer language using unified generator
   let generatedCode = '';
@@ -101,6 +128,16 @@ export const PrintModal: React.FC<PrintModalProps> = ({
       : Math.max(1, rangeEnd - rangeStart + 1);
 
   const totalLabels = totalRecordsToPrint * copies;
+
+  // Object breakdown for inspector
+  const objectSummary = useMemo(() => {
+    const textCount = doc.objects.filter(o => o.type === 'text' || o.type === 'rich-text').length;
+    const barcodeCount = doc.objects.filter(o => o.type === 'barcode').length;
+    const qrCount = doc.objects.filter(o => o.type === 'qrcode' || o.type === 'datamatrix').length;
+    const imageCount = doc.objects.filter(o => o.type === 'image').length;
+    const shapeCount = doc.objects.filter(o => o.type === 'rect' || o.type === 'ellipse' || o.type === 'line').length;
+    return { textCount, barcodeCount, qrCount, imageCount, shapeCount, total: doc.objects.length };
+  }, [doc.objects]);
 
   // Handle printer dispatch
   const handlePrint = () => {
@@ -185,7 +222,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     setTimeout(() => {
       setIsSubmitting(false);
       const jobId = `JOB-WEB-${Math.floor(100000 + Math.random() * 900000)}`;
-      const handoffNote = `WEB PREVIEW — Simulated spooler dispatch for "${activePrinter.name}". Run in Electron desktop app for real hardware printing.`;
+      const handoffNote = `WEB PREVIEW — Structured print job dispatched for "${activePrinter.name}". Run in Electron desktop app for real hardware ports.`;
 
       setDispatchSuccess({
         id: jobId,
@@ -246,6 +283,11 @@ export const PrintModal: React.FC<PrintModalProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  // Label physical pixel dimensions calculated at scale
+  const labelWidthPx = doc.dimensions.width * MM_TO_PX * previewZoom;
+  const labelHeightPx = doc.dimensions.height * MM_TO_PX * previewZoom;
+  const cornerRadiusPx = (doc.dimensions.cornerRadius || 0) * MM_TO_PX * previewZoom;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 select-none">
       <div className="w-full max-w-5xl bg-[#1e2129] border border-[#343946] rounded-xl shadow-2xl flex flex-col max-h-[92vh] text-[#c9ccd3] text-xs overflow-hidden">
@@ -263,7 +305,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-gray-400">
-                Document: <strong className="text-gray-200">{doc.name}</strong> • Layout: {doc.dimensions.width}×{doc.dimensions.height}{doc.dimensions.unit}
+                Document: <strong className="text-gray-200">{doc.name}</strong> • Layout: {doc.dimensions.width}×{doc.dimensions.height}{doc.dimensions.unit} ({objectSummary.total} Elements)
               </p>
             </div>
           </div>
@@ -278,7 +320,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
         {/* Modal Body */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left Column: Print Settings & Configuration */}
-          <div className="w-84 border-r border-[#2d313d] bg-[#181a21] p-4 flex flex-col space-y-4 overflow-y-auto">
+          <div className="w-80 border-r border-[#2d313d] bg-[#181a21] p-4 flex flex-col space-y-4 overflow-y-auto">
             {/* Target Printer Profile */}
             <div>
               <label className="text-[10px] uppercase font-bold text-gray-400 tracking-wider block mb-1">
@@ -454,6 +496,54 @@ export const PrintModal: React.FC<PrintModalProps> = ({
                 </button>
               </div>
 
+              {activeTab === 'preview' && (
+                <div className="flex items-center space-x-2">
+                  {/* Zoom Controls */}
+                  <div className="flex items-center space-x-1 bg-[#15171e] rounded p-0.5 border border-[#2e323e]">
+                    <button
+                      onClick={() => setPreviewZoom(z => Math.max(0.4, Number((z - 0.15).toFixed(2))))}
+                      className="p-1 text-gray-400 hover:text-white rounded"
+                      title="Zoom Out"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-[10px] font-mono text-gray-300 px-1 min-w-[38px] text-center">
+                      {Math.round(previewZoom * 100)}%
+                    </span>
+                    <button
+                      onClick={() => setPreviewZoom(z => Math.min(2.5, Number((z + 0.15).toFixed(2))))}
+                      className="p-1 text-gray-400 hover:text-white rounded"
+                      title="Zoom In"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setPreviewZoom(1.0)}
+                      className="px-1.5 py-0.5 text-[9px] font-semibold text-blue-300 hover:text-white rounded"
+                      title="1:1 Physical Scale"
+                    >
+                      1:1
+                    </button>
+                  </div>
+
+                  {/* Mode Toggle */}
+                  <div className="flex items-center space-x-1 bg-[#15171e] rounded p-0.5 border border-[#2e323e]">
+                    <button
+                      onClick={() => setPreviewMode('wysiwyg')}
+                      className={`px-2 py-0.5 text-[10px] rounded ${previewMode === 'wysiwyg' ? 'bg-blue-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'}`}
+                    >
+                      Design Layout
+                    </button>
+                    <button
+                      onClick={() => setPreviewMode('merged')}
+                      className={`px-2 py-0.5 text-[10px] rounded ${previewMode === 'merged' ? 'bg-blue-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'}`}
+                    >
+                      Data Merge
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'code' && (
                 <div className="flex items-center space-x-2">
                   <button
@@ -477,42 +567,93 @@ export const PrintModal: React.FC<PrintModalProps> = ({
             </div>
 
             {/* Tab Contents */}
-            <div className="flex-1 p-4 overflow-auto">
+            <div className="flex-1 p-4 overflow-auto flex flex-col items-center justify-start bg-[#14161d]">
               {/* WYSIWYG PREVIEW */}
               {activeTab === 'preview' && (
-                <div className="h-full flex flex-col items-center justify-center space-y-3">
-                  <div
-                    className="bg-white p-5 shadow-xl border border-gray-300 rounded max-w-md w-full text-black flex flex-col justify-between space-y-3"
-                    style={{ minHeight: '230px' }}
-                  >
-                    <div className="border-b border-gray-200 pb-2 flex justify-between items-center">
-                      <span className="font-bold text-xs">{doc.name}</span>
-                      <span className="text-[10px] font-mono text-gray-500">
-                        {doc.dimensions.width}×{doc.dimensions.height}{doc.dimensions.unit}
-                      </span>
-                    </div>
+                <div className="w-full h-full flex flex-col items-center justify-between space-y-3">
+                  {/* Visual Substrate Container */}
+                  <div className="flex-1 w-full flex items-center justify-center p-4 overflow-auto min-h-[340px]">
+                    <div
+                      className="relative bg-white shadow-2xl transition-all select-none overflow-hidden"
+                      style={{
+                        width: `${labelWidthPx}px`,
+                        height: `${labelHeightPx}px`,
+                        borderRadius: `${cornerRadiusPx}px`,
+                        boxShadow: '0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 4px 12px -2px rgba(0, 0, 0, 0.4)',
+                        backgroundColor: '#ffffff',
+                      }}
+                      title={`${doc.name} (${doc.dimensions.width}×${doc.dimensions.height}mm)`}
+                    >
+                      {/* Optional printable margin guidelines */}
+                      {showMargins && doc.dimensions.margins && (
+                        <div
+                          className="absolute pointer-events-none border border-dashed border-blue-400/40 z-50"
+                          style={{
+                            left: `${(doc.dimensions.margins.left || 0) * MM_TO_PX * previewZoom}px`,
+                            top: `${(doc.dimensions.margins.top || 0) * MM_TO_PX * previewZoom}px`,
+                            right: `${(doc.dimensions.margins.right || 0) * MM_TO_PX * previewZoom}px`,
+                            bottom: `${(doc.dimensions.margins.bottom || 0) * MM_TO_PX * previewZoom}px`,
+                          }}
+                        />
+                      )}
 
-                    <div className="bg-gray-100 p-3 rounded font-mono text-[11px] space-y-1">
-                      <div>Batch: <strong>{templateVariables.Batch_Number}</strong></div>
-                      <div>Serial: <strong>{templateVariables.Serial_Number}</strong></div>
-                      <div>Order: <strong>{templateVariables.Order_Number}</strong></div>
-                      <div>Dest: <strong>{templateVariables.Destination_Hub}</strong></div>
-                    </div>
+                      {/* Render each structured template element independently */}
+                      {[...doc.objects]
+                        .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+                        .map((obj) => {
+                          if (!obj.visible) return null;
+                          const objLeft = obj.x * MM_TO_PX * previewZoom;
+                          const objTop = obj.y * MM_TO_PX * previewZoom;
+                          const objWidth = obj.width * MM_TO_PX * previewZoom;
+                          const objHeight = obj.height * MM_TO_PX * previewZoom;
 
-                    <div className="text-[9px] text-gray-400 italic text-center">
-                      “Data preview — final layout is rendered by BarTender template.”
+                          return (
+                            <div
+                              key={obj.id}
+                              style={{
+                                position: 'absolute',
+                                left: `${objLeft}px`,
+                                top: `${objTop}px`,
+                                width: `${objWidth}px`,
+                                height: `${objHeight}px`,
+                                opacity: obj.opacity ?? 1,
+                                transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
+                                transformOrigin: 'center center',
+                                boxSizing: 'border-box',
+                              }}
+                            >
+                              {renderLabelObjectContent(
+                                obj,
+                                effectiveActiveRecord,
+                                counter
+                              )}
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-gray-400 font-mono">
-                    Target Hardware Emulation: {activePrinter.manufacturer} ({activePrinter.language} @ {activePrinter.dpi} DPI)
+                  {/* Inspector / Status Footer */}
+                  <div className="w-full bg-[#1b1e27] border border-[#2d313d] rounded-lg p-2 px-3 flex items-center justify-between text-[11px] text-gray-400">
+                    <div className="flex items-center space-x-4">
+                      <span className="flex items-center space-x-1.5 font-mono text-gray-300">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                        <span>Physical Spec: {doc.dimensions.width}×{doc.dimensions.height}{doc.dimensions.unit}</span>
+                      </span>
+                      <span className="text-gray-500">|</span>
+                      <span>Elements: <strong>{objectSummary.textCount}</strong> Text, <strong>{objectSummary.barcodeCount}</strong> Barcode, <strong>{objectSummary.qrCount}</strong> 2D, <strong>{objectSummary.imageCount}</strong> Image, <strong>{objectSummary.shapeCount}</strong> Shape</span>
+                    </div>
+
+                    <div className="flex items-center space-x-3 font-mono text-[10px]">
+                      <span>Target: <strong className="text-cyan-400">{activePrinter.language}</strong> @ {activePrinter.dpi} DPI</span>
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* BARTENDER INTEGRATION PAYLOAD */}
               {activeTab === 'bartender' && (
-                <div className="h-full flex flex-col">
+                <div className="h-full w-full flex flex-col">
                   <div className="text-[10px] text-gray-400 font-mono mb-1">
                     Structured BarTender REST API Payload (/api/actions JSON):
                   </div>
@@ -545,7 +686,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
               {/* RAW THERMAL CODE */}
               {activeTab === 'code' && (
-                <div className="h-full flex flex-col">
+                <div className="h-full w-full flex flex-col">
                   <div className="text-[10px] text-gray-400 font-mono mb-1">
                     Authentic {activePrinter.language} socket payload ready for transmission to port 9100 / LPR:
                   </div>
@@ -557,7 +698,7 @@ export const PrintModal: React.FC<PrintModalProps> = ({
 
               {/* PREFLIGHT STATUS */}
               {activeTab === 'preflight' && (
-                <div className="space-y-2">
+                <div className="w-full space-y-2">
                   <div className="font-semibold text-xs text-white mb-2">
                     Preflight Verification for {activePrinter.name}:
                   </div>

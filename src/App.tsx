@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { TitleBar } from './components/header/TitleBar';
 import { Ribbon, RibbonTab } from './components/ribbon/Ribbon';
 import { LeftToolbox } from './components/toolbox/LeftToolbox';
+import { RightToolbox } from './components/toolbox/RightToolbox';
 import { DesignerCanvas } from './components/canvas/DesignerCanvas';
 import { PropertiesPanel } from './components/properties/PropertiesPanel';
 import { BottomDock } from './components/bottom/BottomDock';
@@ -23,7 +24,8 @@ import { TemplateCenter } from './components/templates/TemplateCenter';
 import { SaveAsTemplateModal } from './components/templates/SaveAsTemplateModal';
 
 // Types & Services
-import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle, GridSettings } from './types/label';
+import { LabelDocument, LabelObject, TextLabelObject, BarcodeLabelObject, ShapeLabelObject, ImageLabelObject, BarcodeSymbology, BarcodeStyle, GuideLine, TextStyle, GridSettings } from './types/label';
+import { BarcodePreset } from './types/presets';
 import { PrinterProfile, PrintJob, PrintAuditLog, UserRole, BarTenderTemplateMetadata, VIRTUAL_FALLBACK_PRINTER } from './types/printer';
 import { DataSourceDefinition, SerializationCounter } from './types/database';
 import { TemplateRecord } from './types/template';
@@ -117,6 +119,7 @@ export const App: React.FC = () => {
   const [lockGuides, setLockGuides] = useState<boolean>(false);
   const [snapToGuides, setSnapToGuides] = useState<boolean>(true);
   const [smartSnapping, setSmartSnapping] = useState<boolean>(true);
+  const [snapToCanvas, setSnapToCanvas] = useState<boolean>(true);
   const [guides, setGuides] = useState<GuideLine[]>([
     { id: 'g-1', type: 'h', position: 10 },
     { id: 'g-2', type: 'h', position: 35 },
@@ -427,6 +430,95 @@ export const App: React.FC = () => {
     showToast(`Added ${symbology.toUpperCase()} barcode`);
   };
 
+  const handleAddQRCodeWithOptions = (options: {
+    value: string;
+    errorCorrectionLevel: 'L' | 'M' | 'Q' | 'H';
+    size?: number;
+    color?: string;
+    backgroundColor?: string;
+    name?: string;
+  }) => {
+    const size = options.size || 25;
+    const newObj: BarcodeLabelObject = {
+      id: `qrcode-${Date.now()}`,
+      name: options.name || 'QR Code',
+      type: 'qrcode',
+      x: 15,
+      y: 15,
+      width: size,
+      height: size,
+      rotation: 0,
+      zIndex: document.objects.length + 1,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      value: options.value || 'https://gs1.org/gtin/00614141999996',
+      barcodeStyle: {
+        symbology: 'qr',
+        humanReadable: false,
+        humanReadableFont: 'monospace',
+        humanReadableSize: 8,
+        humanReadablePosition: 'none',
+        moduleWidth: 0.33,
+        quietZone: true,
+        quietZoneSize: 2,
+        errorCorrectionLevel: options.errorCorrectionLevel || 'M',
+        color: options.color || '#000000',
+        backgroundColor: options.backgroundColor || 'transparent',
+      },
+    };
+
+    pushHistory({ ...document, objects: [...document.objects, newObj] });
+    setSelectedObjectId(newObj.id);
+    setSelectedObjectIds([newObj.id]);
+    setActiveTool('select');
+    showToast(`Inserted QR Code (ECC ${options.errorCorrectionLevel || 'M'})`);
+  };
+
+  const handleAddBarcodeWithPreset = (preset: BarcodePreset) => {
+    const is2D =
+      preset.symbology === 'qr' ||
+      preset.symbology === 'gs1-qr';
+    const isDataMatrix =
+      preset.symbology === 'datamatrix' ||
+      preset.symbology === 'gs1-datamatrix';
+
+    const newObj: BarcodeLabelObject = {
+      id: `barcode-${Date.now()}`,
+      name: preset.name || `${preset.symbology.toUpperCase()} Barcode`,
+      type: is2D ? 'qrcode' : isDataMatrix ? 'datamatrix' : 'barcode',
+      x: 15,
+      y: 15,
+      width: preset.width,
+      height: preset.height,
+      rotation: 0,
+      zIndex: document.objects.length + 1,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      value: preset.sampleValue || '1234567890',
+      barcodeStyle: {
+        symbology: preset.symbology,
+        humanReadable: preset.humanReadable,
+        humanReadableFont: preset.humanReadableFont || 'monospace',
+        humanReadableSize: preset.humanReadableSize || 9,
+        humanReadablePosition: preset.humanReadablePosition || 'bottom',
+        moduleWidth: preset.moduleWidth || 0.33,
+        quietZone: preset.quietZone !== undefined ? preset.quietZone : true,
+        quietZoneSize: preset.quietZoneSize !== undefined ? preset.quietZoneSize : 2,
+        errorCorrectionLevel: preset.errorCorrectionLevel || 'M',
+        color: preset.color || '#000000',
+        backgroundColor: preset.backgroundColor || 'transparent',
+      },
+    };
+
+    pushHistory({ ...document, objects: [...document.objects, newObj] });
+    setSelectedObjectId(newObj.id);
+    setSelectedObjectIds([newObj.id]);
+    setActiveTool('select');
+    showToast(`Inserted ${preset.name} (${preset.symbology.toUpperCase()})`);
+  };
+
   const handleAddShape = (type: 'rect' | 'ellipse' | 'line') => {
     const newObj: ShapeLabelObject = {
       id: `shape-${Date.now()}`,
@@ -454,6 +546,29 @@ export const App: React.FC = () => {
     setActiveTool('select');
   };
 
+  const handleAddImage = (src?: string) => {
+    const newObj: ImageLabelObject = {
+      id: `img-${Date.now()}`,
+      name: `Graphic #${document.objects.filter(o => o.type === 'image').length + 1}`,
+      type: 'image',
+      x: 10,
+      y: 10,
+      width: 25,
+      height: 25,
+      rotation: 0,
+      zIndex: document.objects.length + 1,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      src: src || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="%232563eb" rx="12"/><path d="M25 65 L45 35 L60 55 L70 42 L85 65 Z" fill="%23ffffff"/><circle cx="38" cy="30" r="7" fill="%23facc15"/></svg>',
+      aspectRatioLocked: true,
+    };
+    pushHistory({ ...document, objects: [...document.objects, newObj] });
+    setSelectedObjectId(newObj.id);
+    setActiveTool('select');
+    showToast('Added graphic element');
+  };
+
   const handleAddObject = (type: any, extraProps?: any) => {
     if (type === 'text' || type === 'rich-text') {
       handleAddText(extraProps?.text || 'SAMPLE TEXT');
@@ -465,6 +580,8 @@ export const App: React.FC = () => {
       handleAddBarcode('datamatrix', extraProps?.value || '[)>*06*12S00614141*10LOT99*21SN1002');
     } else if (type === 'rect' || type === 'ellipse' || type === 'line') {
       handleAddShape(type);
+    } else if (type === 'image') {
+      handleAddImage(extraProps?.src);
     }
   };
 
@@ -1051,6 +1168,8 @@ export const App: React.FC = () => {
         setSnapToGuides={setSnapToGuides}
         smartSnapping={smartSnapping}
         setSmartSnapping={setSmartSnapping}
+        snapToCanvas={snapToCanvas}
+        setSnapToCanvas={setSnapToCanvas}
         zoom={zoom}
         setZoom={setZoom}
         unit={document.dimensions.unit || 'mm'}
@@ -1134,6 +1253,8 @@ export const App: React.FC = () => {
                 setSnapToGrid={setSnapToGrid}
                 smartSnapping={smartSnapping}
                 setSmartSnapping={setSmartSnapping}
+                snapToCanvas={snapToCanvas}
+                setSnapToCanvas={setSnapToCanvas}
                 zoom={zoom}
                 setZoom={setZoom}
                 showRulers={showRulers}
@@ -1168,21 +1289,23 @@ export const App: React.FC = () => {
               />
             </div>
 
-            {/* Right Properties Panel Toggle Tab */}
+            {/* Right Toolbox / Properties Panel Toggle Tab */}
             <button
               onClick={() => setIsPropertiesOpen(!isPropertiesOpen)}
               className="absolute top-1/2 -translate-y-1/2 z-40 bg-[#1e222b] hover:bg-blue-600 text-gray-400 hover:text-white border border-[#363b4b] rounded-l px-0.5 py-2 shadow-md transition-colors"
-              style={{ right: isPropertiesOpen ? '288px' : '0px' }}
-              title={isPropertiesOpen ? 'Collapse Properties (Enlarge Editor Section)' : 'Expand Properties'}
+              style={{ right: isPropertiesOpen ? '320px' : '0px' }}
+              title={isPropertiesOpen ? 'Collapse Right Toolbox (Enlarge Editor Section)' : 'Expand Right Toolbox'}
             >
               {isPropertiesOpen ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
             </button>
 
-            {/* Right Properties Panel (Collapsible to maximize editor area) */}
+            {/* Right Toolbox (Properties, Barcode Presets & QR Wizard) */}
             {isPropertiesOpen && (
-              <PropertiesPanel
+              <RightToolbox
                 selectedObject={selectedObject}
                 onUpdateObject={handleUpdateObject}
+                onAddQRCodeWithOptions={handleAddQRCodeWithOptions}
+                onAddBarcodeWithPreset={handleAddBarcodeWithPreset}
                 activeDataSource={activeDataSource}
                 counter={counter}
                 onOpenBarcodeWizard={() => setIsBarcodeWizardOpen(true)}
@@ -1387,7 +1510,7 @@ export const App: React.FC = () => {
               width: `${obj.width}${document.dimensions.unit}`,
               height: `${obj.height}${document.dimensions.unit}`,
               transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
-              transformOrigin: 'top left'
+              transformOrigin: 'center center'
             }}
           >
             {renderLabelObjectContent(
