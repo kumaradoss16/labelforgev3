@@ -741,6 +741,20 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
             </div>
 
             <div>
+              <label className="text-[10px] text-gray-400 block mb-0.5">Rotation (Degrees)</label>
+              <select
+                value={barcodeObj.rotation || 0}
+                onChange={(e) => onUpdateObject({ rotation: Number(e.target.value) })}
+                className="w-full bg-[#16181f] border border-[#373c49] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+              >
+                <option value={0}>0°</option>
+                <option value={90}>90°</option>
+                <option value={180}>180°</option>
+                <option value={270}>270°</option>
+              </select>
+            </div>
+
+            <div>
               <label className="text-[10px] text-gray-400 block mb-0.5">Data / Expression Value</label>
               <textarea
                 rows={2}
