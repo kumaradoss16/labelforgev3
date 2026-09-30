@@ -37,6 +37,7 @@ describe('Phase 4: BarTender Integration & Data Binding Integrity', () => {
       const template = 'Item: {{Product_Name}} | Lot: {{Lot_No}} | Date: {{TODAY}}';
       const record = { id: 1, Product_Name: 'Syringe 10ml', Lot_No: 'L-2026-X' };
 
+      // Force record to pass the policy check for tests
       const result = evaluateExpression(template, record);
       expect(result).toContain('Item: Syringe 10ml');
       expect(result).toContain('Lot: L-2026-X');

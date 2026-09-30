@@ -26,8 +26,8 @@ export interface AuditRecord {
 export class AuditService {
   private auditFilePath: string = '';
 
-  constructor() {
-    this.auditFilePath = path.join(paths.getAppDataDir(), 'audit.jsonl');
+  constructor(customFilePath?: string) {
+    this.auditFilePath = customFilePath || path.join(paths.getAppDataDir(), 'audit.jsonl');
 
     // Run cryptographic integrity verification on startup
     const integrity = this.verifyIntegrity();
@@ -127,7 +127,13 @@ export class AuditService {
 
     logger.info('AuditService', `[AUDIT] ${fullRecord.action} (${fullRecord.result}) by ${fullRecord.user}`);
 
+    // File output with rotation
     try {
+      if (fs.existsSync(this.auditFilePath) && fs.statSync(this.auditFilePath).size > 5 * 1024 * 1024) {
+        // Rotate
+        const timestamp = new Date().toISOString().replace(/:/g, '-');
+        fs.renameSync(this.auditFilePath, `${this.auditFilePath}.${timestamp}.bak`);
+      }
       const line = JSON.stringify(fullRecord) + '\n';
       fs.appendFileSync(this.auditFilePath, line, 'utf-8');
     } catch (err: any) {

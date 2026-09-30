@@ -126,6 +126,18 @@ export function parseAndValidateLForgePackage(rawContent: string): {
       };
     }
 
+    // Validation check: dimensions sanity
+    const dims = pkg.document?.dimensions;
+    if (dims && (typeof dims.width !== 'number' || dims.width <= 0 || !Number.isFinite(dims.width) ||
+                 typeof dims.height !== 'number' || dims.height <= 0 || !Number.isFinite(dims.height))) {
+      return {
+        success: false,
+        warnings,
+        code: 'INVALID_DIMENSIONS',
+        error: 'Invalid document dimensions: width and height must be positive finite numbers.',
+      };
+    }
+
     // Verify SHA-256 checksum
     const computedChecksum = computeDocumentChecksum(pkg.document);
     if (parsed.manifest?.checksum && parsed.manifest.checksum !== 'checksum-pending' && parsed.manifest.checksum !== 'legacy-import' && parsed.manifest.checksum !== computedChecksum) {
@@ -151,7 +163,7 @@ export function parseAndValidateLForgePackage(rawContent: string): {
     return {
       success: false,
       warnings,
-      code: 'PARSE_FAILURE',
+      code: 'PARSE_ERROR',
       error: `JSON parse failure: ${err?.message || 'Malformed data'}`,
     };
   }

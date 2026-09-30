@@ -7,20 +7,22 @@
   "main": "dist-electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
-    "dev:desktop": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev": "bun vite --port=3000 --host=0.0.0.0",
+    "dev:desktop": "concurrently -k \"bun run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron": "electron .",
     "build:vite": "vite build",
     "build:electron": "tsx scripts/build-electron.ts",
-    "build": "npm run build:vite && npm run build:electron",
-    "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:portable": "npm run build && electron-builder --win portable",
+    "build": "bun run build:vite && bun run build:electron",
+    "dist": "bun run build && electron-builder",
+    "dist:win": "bun run build && electron-builder --win",
+    "dist:portable": "bun run build && electron-builder --win portable",
     "preview": "vite preview",
-    "clean": "rm -rf dist dist-electron release",
+    "clean": "rm -rf dist dist-electron release *.log *.tmp *.bak",
     "icons": "tsx scripts/generate-icons.ts",
     "test": "vitest run",
-    "lint": "eslint \"{src,electron}/**/*.{ts,tsx}\" --max-warnings=0 && tsc --noEmit"
+    "lint": "eslint \"{src,electron}/**/*.{ts,tsx}\" --max-warnings=0 && tsc --noEmit",
+    "audit": "bun pm audit",
+    "install:frozen": "bun install --frozen-lockfile"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -33,7 +35,8 @@
     "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",

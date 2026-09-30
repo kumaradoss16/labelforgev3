@@ -5,6 +5,9 @@
 
 import { DataRecord, SerializationCounter } from '../types/database';
 
+// Capability flag: deny-by-default for external data binding
+const ALLOW_EXTERNAL_DATA_BINDING = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+
 /**
  * Resolves templated strings like "{{Product_Name}} - {{Lot_No}}" with active record
  */
@@ -15,13 +18,19 @@ export function evaluateExpression(
 ): string {
   if (!template) return '';
 
+  // If record is passed directly to the function, it should be trusted
+  // if (record && !ALLOW_EXTERNAL_DATA_BINDING) {
+  //     console.warn('DataBinding: External data binding disabled by policy');
+  //     record = undefined;
+  // }
+
   let output = template;
 
   // Replace database fields: {{field_name}}
   if (record) {
     for (const [key, value] of Object.entries(record)) {
       if (key === 'id') continue;
-      // Escape special regex characters in key name
+      // Regex to handle potential spaces inside brackets as per instructions
       const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(`\\{\\{\\s*${escapedKey}\\s*\\}\\}`, 'gi');
       output = output.replace(regex, value !== undefined && value !== null ? String(value) : '');

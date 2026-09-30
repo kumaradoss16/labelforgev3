@@ -18,6 +18,7 @@ import { validatePrintRequest } from '../../utils/validation';
 import { auditService } from '../../services/system/auditService';
 import { logger } from '../../utils/logger';
 import { getSessionPrincipal } from '../../utils/auth';
+import { printQueueService } from '../../services/printer/PrintQueueService';
 
 import { checkPermission, PRIVILEGED_ACTIONS } from '../../config/permissions';
 
@@ -47,20 +48,15 @@ export function registerPrinterHandlers(): void {
     logger.info('PrinterHandlers', `Received print request for printer "${request.printerName}" (type: ${request.printerType})`);
 
     const principal = getSessionPrincipal();
-    const identity = {
-      userId: principal.userId,
-      userName: principal.userName,
-      role: principal.role
-    };
 
     try {
       validatePrintRequest(request);
 
-      if (!checkPermission(identity.role, PRIVILEGED_ACTIONS.PRINT)) {
+      if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.PRINT)) {
         auditService.recordEvent({
           action: 'PRINT_JOB_REQUESTED',
-          user: identity.userName,
-          role: identity.role,
+          user: principal.userName,
+          role: principal.role,
           resource: request.printerName || 'Unknown',
           result: 'DENIED',
           errorMessage: `ERR_FORBIDDEN: User does not have ${PRIVILEGED_ACTIONS.PRINT} permission.`
@@ -69,7 +65,7 @@ export function registerPrinterHandlers(): void {
           success: false,
           error: {
             code: 'ERR_FORBIDDEN',
-            message: `User role '${identity.role}' does not have permission to print.`
+            message: `User role '${principal.role}' does not have permission to print.`
           }
         };
       }
@@ -79,8 +75,8 @@ export function registerPrinterHandlers(): void {
         if (!netVal.valid) {
           auditService.recordEvent({
             action: 'PRINT_JOB_REQUESTED',
-            user: identity.userName,
-            role: identity.role,
+            user: principal.userName,
+            role: principal.role,
             resource: request.printerName || 'Network Printer',
             result: 'FAILURE',
             errorMessage: netVal.error
@@ -131,8 +127,8 @@ export function registerPrinterHandlers(): void {
 
       auditService.recordEvent({
         action: 'PRINT_JOB_REQUESTED',
-        user: identity.userName,
-        role: identity.role,
+        user: principal.userName,
+        role: principal.role,
         resource: request.printerName,
         result: result.success ? 'SUCCESS' : 'FAILURE',
         details: {
@@ -149,8 +145,8 @@ export function registerPrinterHandlers(): void {
       logger.error('PrinterHandlers', `Print job dispatch error: ${err.message}`);
       auditService.recordEvent({
         action: 'PRINT_JOB_REQUESTED',
-        user: identity.userName,
-        role: identity.role,
+        user: principal.userName,
+        role: principal.role,
         resource: request.printerName || 'Unknown',
         result: 'FAILURE',
         errorMessage: err.message
@@ -166,22 +162,17 @@ export function registerPrinterHandlers(): void {
   });
 
   // Test Print
-  ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl', _identityArg?: any): Promise<PrintJobResponse> => {
+  ipcMain.handle('printer:test', async (_event, printerName: string, protocol: string = 'zpl'): Promise<PrintJobResponse> => {
     logger.info('PrinterHandlers', `Test print triggered for ${printerName} with protocol ${protocol}`);
     
     const principal = getSessionPrincipal();
-    const identity = {
-      userId: principal.userId,
-      userName: principal.userName,
-      role: principal.role
-    };
 
     try {
-      if (!checkPermission(identity.role, PRIVILEGED_ACTIONS.TEST_PRINT)) {
+      if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.TEST_PRINT)) {
         auditService.recordEvent({
           action: 'TEST_PRINT_DISPATCHED',
-          user: identity.userName,
-          role: identity.role,
+          user: principal.userName,
+          role: principal.role,
           resource: printerName || 'Unknown',
           result: 'DENIED',
           errorMessage: `ERR_FORBIDDEN: User does not have ${PRIVILEGED_ACTIONS.TEST_PRINT} permission.`
@@ -190,7 +181,7 @@ export function registerPrinterHandlers(): void {
           success: false,
           error: {
             code: 'ERR_FORBIDDEN',
-            message: `User role '${identity.role}' does not have permission to run test prints.`
+            message: `User role '${principal.role}' does not have permission to run test prints.`
           }
         };
       }
@@ -218,8 +209,8 @@ export function registerPrinterHandlers(): void {
 
       auditService.recordEvent({
         action: 'TEST_PRINT_DISPATCHED',
-        user: identity.userName,
-        role: identity.role,
+        user: principal.userName,
+        role: principal.role,
         resource: printerName,
         result: res.success ? 'SUCCESS' : 'FAILURE',
         details: { protocol },
@@ -231,8 +222,8 @@ export function registerPrinterHandlers(): void {
       logger.error('PrinterHandlers', `Test print failed: ${err.message}`);
       auditService.recordEvent({
         action: 'TEST_PRINT_DISPATCHED',
-        user: identity.userName,
-        role: identity.role,
+        user: principal.userName,
+        role: principal.role,
         resource: printerName,
         result: 'FAILURE',
         errorMessage: err.message

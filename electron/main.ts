@@ -78,10 +78,26 @@ function createMainWindow(): BrowserWindow {
 
   // Prevent unauthorized external navigation in renderer
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https:') || url.startsWith('http:')) {
-      shell.openExternal(url);
-    }
+    // Only allow specific protocols and domains if necessary, deny otherwise
     return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Strictly deny navigation away from self
+    if (!url.startsWith('http://localhost:3000') && !url.startsWith('file://')) {
+      event.preventDefault();
+      logger.warn('Main', `Blocked navigation attempt to: ${url}`);
+    }
+  });
+
+  // Set CSP headers
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none';"]
+      }
+    });
   });
 
   // Attach application menu (or keep hidden in frameless mode)

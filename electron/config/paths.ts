@@ -10,6 +10,10 @@ import { app } from 'electron';
 class PathManager {
   private userDataDir: string = '';
 
+  constructor() {
+    this.init();
+  }
+
   public init() {
     try {
       this.userDataDir = app.getPath('userData');

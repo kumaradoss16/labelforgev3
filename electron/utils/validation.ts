@@ -4,6 +4,7 @@
  */
 
 import path from 'path';
+import fs from 'fs';
 import { ValidationError } from './errors';
 
 export function validateFilePath(
@@ -20,25 +21,37 @@ export function validateFilePath(
     throw new ValidationError('File path contains invalid null byte characters');
   }
 
-  const resolved = path.resolve(filePath);
+  // Use realpath to resolve symlinks and junctions before checking containment
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(filePath);
+  } catch (err) {
+    // If the file/directory doesn't exist, fallback to path.resolve
+    realPath = path.resolve(filePath);
+  }
 
   if (allowedRoots && allowedRoots.length > 0) {
     const isInsideAllowedRoot = allowedRoots.some(root => {
-      const resolvedRoot = path.resolve(root);
-      return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep);
+      let resolvedRoot: string;
+      try {
+        resolvedRoot = fs.realpathSync(root);
+      } catch (err) {
+        resolvedRoot = path.resolve(root);
+      }
+      return realPath === resolvedRoot || realPath.startsWith(resolvedRoot + path.sep);
     });
     if (!isInsideAllowedRoot) {
       throw new ValidationError('File path is outside permitted directories');
     }
   }
 
-  const ext = path.extname(resolved).toLowerCase();
+  const ext = path.extname(realPath).toLowerCase();
 
   if (allowedExtensions.length > 0 && !allowedExtensions.includes(ext)) {
     throw new ValidationError(`Unsupported file extension '${ext}'. Allowed: ${allowedExtensions.join(', ')}`);
   }
 
-  return resolved;
+  return realPath;
 }
 
 export function validatePrintRequest(request: any): void {

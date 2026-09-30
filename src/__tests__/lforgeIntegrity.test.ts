@@ -86,4 +86,11 @@ describe('.lforge Package Integrity & Checksum Verification', () => {
     expect(res.success).toBe(false);
     expect(res.code).toBe('SECURITY_VIOLATION');
   });
+
+  it('rejects malformed JSON structure', () => {
+    const malformedJson = '{"format": "lforge", "document": { "objects": [invalid';
+    const res = parseAndValidateLForgePackage(malformedJson);
+    expect(res.success).toBe(false);
+    expect(res.code).toBe('PARSE_ERROR');
+  });
 });

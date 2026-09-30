@@ -114,8 +114,10 @@ export async function desktopPrintLabel(request: DesktopPrintRequest): Promise<D
     return await window.electronAPI!.printer.print({ ...request, identity });
   }
 
-  // Web fallback: Browser window.print()
-  window.print();
+  // Web fallback: Browser window.print() if in browser environment
+  if (typeof window !== 'undefined' && typeof window.print === 'function') {
+    window.print();
+  }
   return { success: true, jobId: `web-${Date.now()}` };
 }
 

@@ -43,13 +43,13 @@ export class WindowsRawSpoolerService {
     payload: Buffer | string,
     jobName: string = 'LabelForge RAW Thermal Job'
   ): Promise<RawPrintResult> {
-    if (!printerName || typeof printerName !== 'string') {
+    if (!printerName || typeof printerName !== 'string' || /[;&|`<>\$\\]/.test(printerName)) {
       return {
         success: false,
         printerName: printerName || 'Unknown',
         bytesWritten: 0,
         errorCode: 'ERR_INVALID_PRINTER',
-        errorMessage: 'Printer name must be a valid non-empty string'
+        errorMessage: 'Printer name must be a valid non-empty string without shell characters'
       };
     }
 
@@ -97,7 +97,7 @@ export class WindowsRawSpoolerService {
 
     // Write payload to temporary PRN spool file
     try {
-      fs.writeFileSync(tempPrnFile, bufferPayload);
+      await fs.promises.writeFile(tempPrnFile, bufferPayload);
     } catch (err: any) {
       logger.error('WindowsRawSpoolerService', `Failed to write spool file: ${err.message}`);
       return {
@@ -183,7 +183,7 @@ if ($res) {
 `;
 
         const psFile = path.join(this.spoolDir, `${jobId}.ps1`);
-        fs.writeFileSync(psFile, psScript, 'utf-8');
+        await fs.promises.writeFile(psFile, psScript, 'utf-8');
 
         try {
           const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psFile, printerName, tempPrnFile, jobName], {
@@ -191,8 +191,8 @@ if ($res) {
           });
 
           // Cleanup temp files
-          this.safeUnlink(psFile);
-          this.safeUnlink(tempPrnFile);
+          await this.safeUnlink(psFile);
+          await this.safeUnlink(tempPrnFile);
 
           if (stdout.includes('SUCCESS')) {
             logger.info('WindowsRawSpoolerService', `Raw spool job ${jobId} successfully sent to ${printerName}`);
@@ -206,7 +206,7 @@ if ($res) {
             throw new Error(`Spooler rejected job`);
           }
         } catch (execErr: any) {
-          this.safeUnlink(tempPrnFile);
+          await this.safeUnlink(tempPrnFile);
           logger.error('WindowsRawSpoolerService', `PowerShell raw print failed: ${execErr.message}`);
           return {
             success: false,
@@ -217,7 +217,7 @@ if ($res) {
           };
         }
       } catch (err: any) {
-        this.safeUnlink(tempPrnFile);
+        await this.safeUnlink(tempPrnFile);
         return {
           success: false,
           printerName,
@@ -229,7 +229,7 @@ if ($res) {
     } else {
       // Non-Windows simulation / development fallback
       logger.info('WindowsRawSpoolerService', `[Non-Windows OS] Simulated sending ${bufferPayload.length} bytes to ${printerName}`);
-      this.safeUnlink(tempPrnFile);
+      await this.safeUnlink(tempPrnFile);
       return {
         success: true,
         jobId,
@@ -239,10 +239,10 @@ if ($res) {
     }
   }
 
-  private safeUnlink(filePath: string) {
+  private async safeUnlink(filePath: string) {
     if (fs.existsSync(filePath)) {
       try {
-        fs.unlinkSync(filePath);
+        await fs.promises.unlink(filePath);
       } catch {}
     }
   }

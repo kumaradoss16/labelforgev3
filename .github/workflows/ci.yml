@@ -14,17 +14,22 @@ jobs:
     - name: Checkout Codebase
       uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
       with:
-        node-version: '20'
-        cache: 'npm'
+        bun-version: latest
 
     - name: Install Dependencies
-      run: npm ci || npm install
+      run: bun run install:frozen
 
-    - name: TypeScript Compilation Check
-      run: npx tsc --noEmit
+    - name: Security Audit
+      run: bun run audit
+
+    - name: Linting & Type Checking
+      run: bun run lint
 
     - name: Run Comprehensive Test Suite
-      run: npx vitest run
+      run: bun run test
+
+    - name: Build Application
+      run: bun run build
