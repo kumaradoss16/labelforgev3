@@ -9,6 +9,7 @@ import { paths } from './config/paths';
 import { appConfig } from './config/appConfig';
 import { logger } from './utils/logger';
 import { registerAllIpcHandlers } from './ipc';
+import { sessionManager } from './services/SessionManager';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -286,6 +287,9 @@ app.whenReady().then(() => {
   paths.init();
   logger.init();
   logger.info('Main', `LabelForge Studio ${appConfig.version} starting on ${process.platform}...`);
+
+  // Initialize workstation session with default local operator role (ensures print availability on boot)
+  sessionManager.initializeSession('usr-op-03', 'Warehouse Operator', 'OPERATOR');
 
   registerAllIpcHandlers();
   createMainWindow();

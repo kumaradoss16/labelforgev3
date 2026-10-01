@@ -5,9 +5,11 @@
 import { ipcMain, dialog, BrowserWindow } from 'electron';
 import fs from 'fs';
 import { logger } from '../../utils/logger';
+import { assertTrustedRenderer } from '../../security/senderValidation';
 
 export function registerDialogHandlers(): void {
-  ipcMain.handle('dialog:open-file', async (_event, options: any = {}) => {
+  ipcMain.handle('dialog:open-file', async (event, options: any = {}) => {
+    assertTrustedRenderer(event);
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const defaultFilters = [
       { name: 'LabelForge Project (*.lforge)', extensions: ['lforge'] },
@@ -41,7 +43,8 @@ export function registerDialogHandlers(): void {
     }
   });
 
-  ipcMain.handle('dialog:save-file', async (_event, options: any = {}) => {
+  ipcMain.handle('dialog:save-file', async (event, options: any = {}) => {
+    assertTrustedRenderer(event);
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     const defaultFilters = [
       { name: 'LabelForge Project (*.lforge)', extensions: ['lforge'] },
@@ -69,7 +72,8 @@ export function registerDialogHandlers(): void {
     }
   });
 
-  ipcMain.handle('dialog:select-folder', async () => {
+  ipcMain.handle('dialog:select-folder', async (event) => {
+    assertTrustedRenderer(event);
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     try {
       const result = await dialog.showOpenDialog(win, {
@@ -91,7 +95,8 @@ export function registerDialogHandlers(): void {
     }
   });
 
-  ipcMain.handle('dialog:message-box', async (_event, options: any = {}) => {
+  ipcMain.handle('dialog:message-box', async (event, options: any = {}) => {
+    assertTrustedRenderer(event);
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
     try {
       const result = await dialog.showMessageBox(win, {

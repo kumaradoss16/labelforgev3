@@ -47,4 +47,27 @@ describe('ISSUE 2 — No path containment on file IPC', () => {
     const result = validateFilePath(outsidePath, ['.lforge']);
     expect(result).toBe(outsidePath);
   });
+
+  it('differentiates between user-dialogue paths and renderer-supplied paths', () => {
+    const networkSharePath = path.resolve('/mnt/network_share/production_labels/box_tag.lforge');
+    
+    // Direct renderer-supplied path (isDialog = false) enforces allowedRoots -> must throw
+    const isRendererDirect = false;
+    expect(() => {
+      validateFilePath(
+        networkSharePath,
+        ['.lforge', '.json'],
+        isRendererDirect ? undefined : allowedRoots
+      );
+    }).toThrow(/outside permitted directories/);
+
+    // Dialog-selected path (isDialog = true) passes undefined -> permitted
+    const isDialog = true;
+    const dialogResult = validateFilePath(
+      networkSharePath,
+      ['.lforge', '.json'],
+      isDialog ? undefined : allowedRoots
+    );
+    expect(dialogResult).toBe(networkSharePath);
+  });
 });

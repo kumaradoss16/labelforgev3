@@ -260,10 +260,12 @@ export class NetworkPrinterAdapter implements PrinterAdapter {
         socket.destroy();
         if (!hasFinished) {
           hasFinished = true;
+          // If bytes were partially or fully written before connection failed, transmission status is unknown
+          const code = bytesWritten > 0 ? 'ERR_CONNECTION_DROPPED' : 'ERR_SOCKET_ERROR';
           resolve({
             success: false,
             error: {
-              code: 'ERR_SOCKET_ERROR',
+              code,
               message: `Network communication error to ${host}:${port}: ${err.message}`
             }
           });

@@ -243,7 +243,9 @@ if ($res) {
     if (fs.existsSync(filePath)) {
       try {
         await fs.promises.unlink(filePath);
-      } catch {}
+      } catch {
+        // Best-effort cleanup of temporary spool file; ignore if already removed or locked
+      }
     }
   }
 }

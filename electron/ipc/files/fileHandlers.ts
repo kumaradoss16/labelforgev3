@@ -7,10 +7,12 @@ import { ipcMain } from 'electron';
 import { fileManager } from '../../services/filesystem/fileManager';
 import { validateFilePath } from '../../utils/validation';
 import { paths } from '../../config/paths';
+import { assertTrustedRenderer } from '../../security/senderValidation';
 
 export function registerFileHandlers(): void {
   // Domain-restricted file exists check
-  ipcMain.handle('file:exists', async (_event, filePath: string) => {
+  ipcMain.handle('file:exists', async (event, filePath: string) => {
+    assertTrustedRenderer(event);
     try {
       if (!filePath || typeof filePath !== 'string') return false;
       const valid = validateFilePath(filePath, ['.lforge', '.json', '.prn', '.txt'], paths.getAllowedRoots());

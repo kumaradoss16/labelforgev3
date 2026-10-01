@@ -1,5 +1,6 @@
 /**
  * LabelForge Desktop - System & Settings IPC Handlers
+ * Enforces sender validation, session authentication, and RBAC authorization for settings modifications.
  */
 
 import { ipcMain } from 'electron';
@@ -7,13 +8,21 @@ import fs from 'fs';
 import { systemService } from '../../services/system/systemInfo';
 import { paths } from '../../config/paths';
 import { logger } from '../../utils/logger';
+import { assertTrustedRenderer } from '../../security/senderValidation';
+import { AppSettingsSchema } from '../../security/schemas';
+import { sessionManager } from '../../services/SessionManager';
+import { checkPermission, PRIVILEGED_ACTIONS } from '../../config/permissions';
+import { AuthorizationDeniedError } from '../../security/errors';
+import { auditService } from '../../services/system/auditService';
 
 export function registerSystemHandlers(): void {
-  ipcMain.handle('system:get-info', async () => {
+  ipcMain.handle('system:get-info', async (event) => {
+    assertTrustedRenderer(event);
     return systemService.getInfo();
   });
 
-  ipcMain.handle('settings:get', async () => {
+  ipcMain.handle('settings:get', async (event) => {
+    assertTrustedRenderer(event);
     const file = paths.getSettingsFilePath();
     if (!fs.existsSync(file)) {
       return {
@@ -35,12 +44,27 @@ export function registerSystemHandlers(): void {
     }
   });
 
-  ipcMain.handle('settings:set', async (_event, newSettings: any) => {
-    if (!newSettings || typeof newSettings !== 'object') {
-      throw new Error('Invalid settings object structure');
+  ipcMain.handle('settings:set', async (event, rawSettings: unknown) => {
+    assertTrustedRenderer(event);
+
+    // 1. Authenticated Principal & RBAC Check
+    const principal = sessionManager.requireAuthenticatedPrincipal();
+    if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.MODIFY_SETTINGS)) {
+      auditService.recordEvent({
+        action: 'SETTINGS_UPDATE',
+        user: principal.userName,
+        role: principal.role,
+        resource: 'APP_SETTINGS',
+        result: 'DENIED',
+        errorMessage: `User role '${principal.role}' cannot modify settings.`
+      });
+      throw new AuthorizationDeniedError(PRIVILEGED_ACTIONS.MODIFY_SETTINGS, principal.role);
     }
 
-    // Strict prototype pollution prevention
+    // 2. Validate Schema
+    const newSettings = AppSettingsSchema.parse(rawSettings) as Record<string, any>;
+
+    // 3. Strict prototype pollution prevention
     const badKeys = ['__proto__', 'constructor', 'prototype'];
     const sanitizeObj = (obj: any): any => {
       if (!obj || typeof obj !== 'object') return obj;
@@ -72,7 +96,16 @@ export function registerSystemHandlers(): void {
       };
 
       fs.writeFileSync(file, JSON.stringify(updated, null, 2), 'utf-8');
-      logger.info('SystemHandlers', 'Settings saved successfully');
+      logger.info('SystemHandlers', `Settings saved successfully by ${principal.userName}`);
+
+      auditService.recordEvent({
+        action: 'SETTINGS_UPDATE',
+        user: principal.userName,
+        role: principal.role,
+        resource: 'APP_SETTINGS',
+        result: 'SUCCESS'
+      });
+
       return updated;
     } catch (err: any) {
       logger.error('SystemHandlers', 'Failed to save settings: ' + err.message);

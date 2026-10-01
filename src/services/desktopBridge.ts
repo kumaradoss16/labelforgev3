@@ -110,8 +110,8 @@ export async function desktopGetPrinters(): Promise<NativePrinterInfo[]> {
 
 export async function desktopPrintLabel(request: DesktopPrintRequest): Promise<DesktopPrintResult> {
   if (isDesktopApp()) {
-    const identity = request.identity || (typeof window !== 'undefined' ? (window as any).currentIdentity : undefined);
-    return await window.electronAPI!.printer.print({ ...request, identity });
+    // Identity is strictly derived in Main Process SessionManager; renderer cannot forge identity
+    return await window.electronAPI!.printer.print(request);
   }
 
   // Web fallback: Browser window.print() if in browser environment
@@ -123,10 +123,30 @@ export async function desktopPrintLabel(request: DesktopPrintRequest): Promise<D
 
 export async function desktopTestPrint(printerName: string, protocol?: 'zpl' | 'tspl' | 'spooler'): Promise<DesktopPrintResult> {
   if (isDesktopApp()) {
-    const identity = typeof window !== 'undefined' ? (window as any).currentIdentity : undefined;
-    return await window.electronAPI!.printer.testPrint(printerName, protocol, identity);
+    return await window.electronAPI!.printer.testPrint(printerName, protocol);
   }
   return { success: false, error: { code: 'NOT_DESKTOP', message: 'Direct thermal hardware test print requires desktop execution' } };
+}
+
+export async function desktopLogin(credentials: { username: string; password?: string; domain?: string }) {
+  if (isDesktopApp() && window.electronAPI?.auth?.login) {
+    return await window.electronAPI.auth.login(credentials);
+  }
+  return { success: true };
+}
+
+export async function desktopLogout() {
+  if (isDesktopApp() && window.electronAPI?.auth?.logout) {
+    return await window.electronAPI.auth.logout();
+  }
+  return { success: true };
+}
+
+export async function desktopGetSession() {
+  if (isDesktopApp() && window.electronAPI?.auth?.getSession) {
+    return await window.electronAPI.auth.getSession();
+  }
+  return null;
 }
 
 export async function desktopGetSettings(): Promise<AppSettings> {

@@ -12,16 +12,19 @@ import { getSessionPrincipal } from '../../utils/auth';
 import { checkPermission, PRIVILEGED_ACTIONS } from '../../config/permissions';
 
 import { paths } from '../../config/paths';
+import { assertTrustedRenderer } from '../../security/senderValidation';
 
 export function registerProjectHandlers(): void {
   // Create New Project
-  ipcMain.handle('project:create', async () => {
+  ipcMain.handle('project:create', async (event) => {
+    assertTrustedRenderer(event);
     logger.info('ProjectHandlers', 'New project requested');
     return { success: true };
   });
 
   // Open Project (either from specific filePath or via native Windows Open Dialog)
-  ipcMain.handle('project:open', async (_event, filePath?: string) => {
+  ipcMain.handle('project:open', async (event, filePath?: string) => {
+    assertTrustedRenderer(event);
     try {
       let targetPath = filePath;
       let isDialog = false;
@@ -45,11 +48,11 @@ export function registerProjectHandlers(): void {
         isDialog = true;
       }
 
-      // Enforce path containment strictly
+      // Enforce path containment strictly for renderer-supplied paths; native dialog is the trust boundary
       const validPath = validateFilePath(
         targetPath,
         ['.lforge', '.json'],
-        paths.getAllowedRoots()
+        isDialog ? undefined : paths.getAllowedRoots()
       );
       const pkg = await projectStorage.loadProject(validPath);
 
@@ -68,7 +71,8 @@ export function registerProjectHandlers(): void {
   });
 
   // Save Project
-  ipcMain.handle('project:save', async (_event, projectData: LForgePackage, filePath?: string) => {
+  ipcMain.handle('project:save', async (event, projectData: LForgePackage, filePath?: string) => {
+    assertTrustedRenderer(event);
     try {
       const principal = getSessionPrincipal();
       if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.SAVE_PROJECT)) {
@@ -93,11 +97,11 @@ export function registerProjectHandlers(): void {
         isDialog = true;
       }
 
-      // Enforce path containment strictly
+      // Enforce path containment strictly for renderer-supplied paths; native dialog is the trust boundary
       const validPath = validateFilePath(
         targetPath,
         ['.lforge', '.json'],
-        paths.getAllowedRoots()
+        isDialog ? undefined : paths.getAllowedRoots()
       );
       await projectStorage.saveProject(validPath, projectData);
 
@@ -115,7 +119,8 @@ export function registerProjectHandlers(): void {
   });
 
   // Save As Project (always opens native Windows Save dialog)
-  ipcMain.handle('project:save-as', async (_event, projectData: LForgePackage) => {
+  ipcMain.handle('project:save-as', async (event, projectData: LForgePackage) => {
+    assertTrustedRenderer(event);
     try {
       const principal = getSessionPrincipal();
       if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.SAVE_AS_PROJECT)) {
@@ -133,8 +138,8 @@ export function registerProjectHandlers(): void {
         return { success: false, error: 'Canceled by user' };
       }
 
-      // Enforce path containment strictly
-      const validPath = validateFilePath(res.filePath, ['.lforge', '.json'], paths.getAllowedRoots());
+      // Enforce path validation; native dialog is the trust boundary
+      const validPath = validateFilePath(res.filePath, ['.lforge', '.json'], undefined);
       await projectStorage.saveProject(validPath, projectData);
 
       return {
@@ -151,11 +156,13 @@ export function registerProjectHandlers(): void {
   });
 
   // Recent Projects
-  ipcMain.handle('project:recent', async () => {
+  ipcMain.handle('project:recent', async (event) => {
+    assertTrustedRenderer(event);
     return recentProjects.getRecent();
   });
 
-  ipcMain.handle('project:clear-recent', async () => {
+  ipcMain.handle('project:clear-recent', async (event) => {
+    assertTrustedRenderer(event);
     recentProjects.clearRecent();
     return { success: true };
   });

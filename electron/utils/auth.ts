@@ -5,25 +5,33 @@
 
 import { sessionManager, SessionPrincipal } from '../services/SessionManager';
 import { checkPermission } from '../config/permissions';
+import { UserRole } from '../../src/types/printer';
 
 export function getSessionPrincipal(): SessionPrincipal {
-  return sessionManager.requireAuthenticated();
+  return sessionManager.requireAuthenticatedPrincipal();
 }
 
-// These functions will be removed or updated as we implement real authentication
-export function setSessionPrincipal(userId: string, userName: string, role: any): void {
-  sessionManager.initializeSession(userId, userName, role);
+export function getOptionalSessionPrincipal(): SessionPrincipal | null {
+  return sessionManager.getAuthenticatedPrincipal();
+}
+
+export function initializeSession(
+  userId: string,
+  userName: string,
+  role: UserRole
+): SessionPrincipal {
+  return sessionManager.initializeSession(userId, userName, role);
 }
 
 export function resetSessionPrincipal(): void {
-  // sessionManager.clearSession(); // Need to add clearSession
+  sessionManager.destroySession();
 }
 
 export function checkMainProcessPermission(action: string): boolean {
   try {
     const principal = getSessionPrincipal();
     return checkPermission(principal.role, action);
-  } catch (e) {
+  } catch {
     return false;
   }
 }

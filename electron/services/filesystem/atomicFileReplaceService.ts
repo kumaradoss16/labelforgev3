@@ -81,14 +81,18 @@ export class AtomicFileReplaceService {
 
       // 6. Clean up temporary file if it still exists
       if (fs.existsSync(tempPath)) {
-        try { fs.unlinkSync(tempPath); } catch {}
+        try { fs.unlinkSync(tempPath); } catch {
+          // Ignore cleanup error if temp file was already unlinked or locked
+        }
       }
 
       logger.info('AtomicFileReplaceService', `Atomic replace succeeded for ${targetPath}`);
     } catch (err: any) {
       // Clean up temp file on failure
       if (fs.existsSync(tempPath)) {
-        try { fs.unlinkSync(tempPath); } catch {}
+        try { fs.unlinkSync(tempPath); } catch {
+          // Ignore secondary cleanup error on error path
+        }
       }
       logger.error('AtomicFileReplaceService', `Atomic replace failed for ${targetPath}: ${err.message}`);
       throw err;
@@ -112,10 +116,14 @@ export class AtomicFileReplaceService {
               fs.unlinkSync(fullPath);
               logger.info('AtomicFileReplaceService', `Cleaned orphaned temp file ${fullPath}`);
             }
-          } catch {}
+          } catch {
+            // Ignore error for individual file stat/unlink (e.g. concurrent removal or permission lock)
+          }
         }
       }
-    } catch {}
+    } catch {
+      // Ignore readdir error if directory cannot be read
+    }
   }
 }
 

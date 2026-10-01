@@ -36,19 +36,15 @@ export interface DesktopPrintRequest {
   printerName: string;
   printerType: 'windows' | 'network' | 'zpl' | 'tspl' | 'epl' | 'cpcl' | 'sbpl' | 'dpl' | 'bartender';
   copies?: number;
-  rawPayload?: string; // ZPL, TSPL, EPL command stream
+  rawPayload: string; // ZPL, TSPL, EPL canonical command stream
+  payloadId?: string;
+  payloadHash?: string;
   networkHost?: string;
   networkPort?: number; // default 9100
   bartenderTemplate?: string;
   bartenderPayload?: Record<string, any>;
-  previewDataUrl?: string;
   jobName?: string;
-  identity?: {
-    userId: string;
-    userName: string;
-    role: string;
-    email?: string;
-  };
+  // NOTE: Identity and previewDataUrl are deliberately rejected from renderer print requests
 }
 
 export interface DesktopPrintResult {
@@ -98,6 +94,15 @@ export interface SaveFileDialogOptions {
   filters?: Array<{ name: string; extensions: string[] }>;
 }
 
+export interface SessionPrincipalInfo {
+  sessionId: string;
+  userId: string;
+  userName: string;
+  role: string;
+  authenticatedAt: number;
+  expiresAt: number;
+}
+
 export interface ElectronAPI {
   isElectron: boolean;
 
@@ -134,7 +139,7 @@ export interface ElectronAPI {
     list(): Promise<NativePrinterInfo[]>;
     getDefault(): Promise<NativePrinterInfo | null>;
     print(request: DesktopPrintRequest): Promise<DesktopPrintResult>;
-    testPrint(printerName: string, protocol?: string, identity?: any): Promise<DesktopPrintResult>;
+    testPrint(printerName: string, protocol?: string): Promise<DesktopPrintResult>;
   };
 
   system: {
@@ -144,6 +149,14 @@ export interface ElectronAPI {
   settings: {
     get(): Promise<AppSettings>;
     set(settings: Partial<AppSettings>): Promise<AppSettings>;
+  };
+
+  auth: {
+    login(credentials: { username: string; password?: string; domain?: string }): Promise<{ success: boolean; principal?: SessionPrincipalInfo; error?: string }>;
+    login(userId: string, userName: string, role: string, credential: string): Promise<{ success: boolean; principal?: SessionPrincipalInfo; error?: string }>;
+    logout(): Promise<{ success: boolean }>;
+    getSession(): Promise<SessionPrincipalInfo | null>;
+    updateRole?(role: string, credentialToken?: string): Promise<{ success: boolean; error?: string }>;
   };
 
   onMenuAction(callback: (action: string) => void): () => void;

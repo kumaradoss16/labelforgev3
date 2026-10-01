@@ -63,17 +63,22 @@ export function extractNetworkHostPort(address?: string): { host?: string; port?
   return {};
 }
 
+export class PrintPayloadUnavailableError extends Error {
+  constructor(jobId: string) {
+    super(`Canonical print payload unavailable for job '${jobId}'. Preview data is never permitted for printing.`);
+    this.name = 'PrintPayloadUnavailableError';
+  }
+}
+
 /**
- * Stream print jobs in chunks of PRINT_BATCH_SIZE to prevent browser / renderer heap exhaustion
+ * Retrieves the verified canonical payload for print execution.
+ * PREVIEW IS NEVER A PRINT PAYLOAD. Throws PrintPayloadUnavailableError if rawPayload is missing.
  */
 export function getRealJobPayload(job: PrintJob): string {
-  if (job.rawPayload && !job.rawPayload.includes('[Buffer Released]')) {
-    return job.rawPayload;
+  if (!job.rawPayload || job.rawPayload.includes('[Buffer Released]')) {
+    throw new PrintPayloadUnavailableError(job.id);
   }
-  if (job.rawPayloadPreview && !job.rawPayloadPreview.includes('[Buffer Released]')) {
-    return job.rawPayloadPreview;
-  }
-  return job.rawPayload || job.rawPayloadPreview || '';
+  return job.rawPayload;
 }
 
 export async function executeBatchPrint(
@@ -190,7 +195,12 @@ export async function retryFailedPrintJobs(
   printers: PrinterProfile[],
   onProgress?: (current: number, total: number) => void
 ): Promise<{ updatedJobs: PrintJob[]; succeeded: number; failed: number }> {
-  const jobsToProcess = failedJobsToRetry.filter((j) => j.status === 'FAILED');
+  const jobsToProcess = failedJobsToRetry.filter((j) => {
+    // Strict Industrial Print Safety:
+    // Only definite pre-transmission failures may be automatically retried.
+    // STATUS_UNKNOWN and TRANSMITTED are strictly prohibited from auto-retry to prevent duplicate label printing.
+    return j.status === 'FAILED' && (j.status as string) !== 'STATUS_UNKNOWN' && (j.status as string) !== 'TRANSMITTED';
+  });
   if (jobsToProcess.length === 0) {
     return { updatedJobs: allJobs, succeeded: 0, failed: 0 };
   }

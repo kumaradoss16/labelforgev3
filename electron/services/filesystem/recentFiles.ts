@@ -26,7 +26,9 @@ export class RecentProjectsService {
     if (!fs.existsSync(dir)) {
       try {
         fs.mkdirSync(dir, { recursive: true });
-      } catch {}
+      } catch {
+        // Ignore directory creation failure if path already exists or was created concurrently
+      }
     }
   }
 

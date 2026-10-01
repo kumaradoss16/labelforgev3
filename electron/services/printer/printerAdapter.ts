@@ -27,14 +27,7 @@ export interface PrintJobRequest {
   timeoutMs?: number;
   bartenderTemplate?: string;
   bartenderPayload?: Record<string, any>;
-  previewDataUrl?: string;
   jobName?: string;
-  identity?: {
-    userId: string;
-    userName: string;
-    role: string;
-    email?: string;
-  };
 }
 
 export interface PrintJobResponse {

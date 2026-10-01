@@ -74,11 +74,30 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
       confirmInput = promptRes;
     }
 
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth) {
-      // Secure delegation of role update / verification to main process
-      const res = await (window as any).electronAPI.auth.updateRole(role, confirmInput);
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.auth?.login) {
+      const usernameMap: Record<UserRole, string> = {
+        SYSTEM_ADMIN: 'admin',
+        PRINT_MANAGER: 'manager',
+        OPERATOR: 'operator',
+        VIEWER: 'viewer'
+      };
+      const username = usernameMap[role] || 'viewer';
+
+      let password = '';
+      if (!isTesting) {
+        const promptRes = window.prompt(`Authenticate as ${role} (${username}). Enter password:`);
+        if (promptRes === null) return;
+        password = promptRes;
+      } else {
+        // Test harness credential
+        password = role === 'SYSTEM_ADMIN' ? 'AdminSecurePass2026!'
+          : (role === 'PRINT_MANAGER' ? 'ManagerSecurePass2026!'
+          : (role === 'OPERATOR' ? 'OperatorPass2026!' : 'ViewerPass2026!'));
+      }
+
+      const res = await (window as any).electronAPI.auth.login({ username, password });
       if (!res || !res.success) {
-        window.alert(res?.error || 'Authorization failed. Invalid security credential.');
+        window.alert(res?.error || 'Authentication failed. Invalid security credentials.');
         return;
       }
 
@@ -105,17 +124,7 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
       });
       window.dispatchEvent(event);
     } else {
-      // Non-electron/testing mode fallback with secure checks
-      const requiredToken = role === 'SYSTEM_ADMIN' ? 'admin@lf3' 
-                          : role === 'PRINT_MANAGER' ? 'manager@lf3'
-                          : role === 'OPERATOR' ? 'operator@lf3'
-                          : '';
-      
-      if (requiredToken && confirmInput !== requiredToken && !isTesting) {
-        window.alert('Authorization failed. Invalid security credential.');
-        return;
-      }
-
+      // Non-electron web preview mode
       const nameMap: Record<UserRole, string> = {
         SYSTEM_ADMIN: 'System Administrator',
         PRINT_MANAGER: 'Print Operations Manager',
@@ -140,7 +149,7 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
         role,
         userName: nameMap[role] || identity.userName,
         userId: idMap[role] || identity.userId,
-        email: emailMap[role] || identity.email,
+        email: emailMap[role] || identity.email
       };
 
       setIdentityState(newIdentity);

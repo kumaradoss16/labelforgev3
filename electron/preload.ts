@@ -48,7 +48,7 @@ const electronAPI = {
     list: () => ipcRenderer.invoke('printer:list'),
     getDefault: () => ipcRenderer.invoke('printer:default'),
     print: (request: any) => ipcRenderer.invoke('printer:print', request),
-    testPrint: (printerName: string, protocol?: string, identity?: any) => ipcRenderer.invoke('printer:test', printerName, protocol, identity)
+    testPrint: (printerName: string, protocol?: string) => ipcRenderer.invoke('printer:test', printerName, protocol)
   },
 
   system: {
@@ -61,6 +61,8 @@ const electronAPI = {
   },
 
   auth: {
+    login: (...args: any[]) => ipcRenderer.invoke('auth:login', ...args),
+    logout: () => ipcRenderer.invoke('auth:logout'),
     getSession: () => ipcRenderer.invoke('auth:get-session'),
     updateRole: (role: string, credentialToken?: string) => ipcRenderer.invoke('auth:update-role', role, credentialToken)
   },

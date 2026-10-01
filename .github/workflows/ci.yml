@@ -3,11 +3,13 @@ name: LabelForge CI Pipeline
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
 
 jobs:
   build-and-test:
+    name: Audit, Lint, Test & Build
     runs-on: ubuntu-latest
 
     steps:
@@ -33,3 +35,40 @@ jobs:
 
     - name: Build Application
       run: bun run build
+
+  release:
+    name: Build & Publish Release
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout Codebase
+      uses: actions/checkout@v4
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install Dependencies
+      run: bun run install:frozen
+
+    - name: Package & Sign Windows Installer
+      env:
+        CSC_LINK: ${{ secrets.CSC_LINK }}
+        CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: bun run dist:win
+
+    - name: Upload Release Artifacts
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          release/*.exe
+          release/*.blockmap
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

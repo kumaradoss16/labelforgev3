@@ -119,4 +119,66 @@ describe('ISSUE 3 — Role-Based Access Control & Audit Trail Integrity', () => 
     expect(integrity.isValid).toBe(false);
     expect(integrity.message).toContain('Hash-chain mismatch');
   });
+
+  it('preserves continuous cryptographic hash-chain across log rotation and verifies cross-archive integrity', () => {
+    const testAuditService = new AuditService();
+    (testAuditService as any).auditFilePath = auditFilePath;
+
+    // Record initial events before rotation
+    const r1 = testAuditService.recordEvent({ action: 'LOGIN', user: 'Admin', role: 'SYSTEM_ADMIN', resource: 'SYSTEM', result: 'SUCCESS' });
+    const r2 = testAuditService.recordEvent({ action: 'PRINT_JOB', user: 'Operator', role: 'OPERATOR', resource: 'ZT411', result: 'SUCCESS' });
+
+    expect(r1.previousHash).toBe('genesis');
+    expect(r2.previousHash).toBe(r1.hash);
+
+    // Perform rotation
+    const rotateRes = testAuditService.rotateLogs();
+    expect(rotateRes.success).toBe(true);
+    expect(rotateRes.finalHash).toBe(r2.hash);
+
+    // Record new events in the fresh active file
+    const r3 = testAuditService.recordEvent({ action: 'PRINT_JOB', user: 'Operator', role: 'OPERATOR', resource: 'ZT411', result: 'SUCCESS' });
+    const r4 = testAuditService.recordEvent({ action: 'LOGOUT', user: 'Operator', role: 'OPERATOR', resource: 'SYSTEM', result: 'SUCCESS' });
+
+    // CRITICAL: First record in new file MUST be anchored to the final hash of the rotated file!
+    expect(r3.previousHash).toBe(r2.hash);
+    expect(r4.previousHash).toBe(r3.hash);
+
+    // Single-file integrity check for active log passes
+    const activeIntegrity = testAuditService.verifyIntegrity();
+    expect(activeIntegrity.isValid).toBe(true);
+
+    // Cross-boundary archive walk passes
+    const fullIntegrity = testAuditService.verifyIntegrity({ walkArchives: true });
+    expect(fullIntegrity.isValid).toBe(true);
+  });
+
+  it('detects tampering or deletion of archived audit files during cross-archive verification', () => {
+    const testAuditService = new AuditService();
+    (testAuditService as any).auditFilePath = auditFilePath;
+
+    testAuditService.recordEvent({ action: 'INIT', user: 'Admin', role: 'SYSTEM_ADMIN', resource: 'SYS', result: 'SUCCESS' });
+    const rot = testAuditService.rotateLogs();
+    expect(rot.success).toBe(true);
+
+    testAuditService.recordEvent({ action: 'RUN', user: 'Operator', role: 'OPERATOR', resource: 'PRINT', result: 'SUCCESS' });
+
+    // Tamper with the archived file
+    const archivePath = rot.archivePath!;
+    const archiveContent = fs.readFileSync(archivePath, 'utf-8');
+    const tamperedContent = archiveContent.replace('"Admin"', '"MaliciousActor"');
+    fs.writeFileSync(archivePath, tamperedContent, 'utf-8');
+
+    // Walk archives should catch tampering
+    const tamperedResult = testAuditService.verifyIntegrity({ walkArchives: true });
+    expect(tamperedResult.isValid).toBe(false);
+    expect(tamperedResult.message).toMatch(/tampering|mismatch/i);
+
+    // Delete the archive file entirely
+    fs.unlinkSync(archivePath);
+
+    const deletedResult = testAuditService.verifyIntegrity({ walkArchives: true });
+    expect(deletedResult.isValid).toBe(false);
+    expect(deletedResult.message).toMatch(/Missing audit archive|deletion/i);
+  });
 });

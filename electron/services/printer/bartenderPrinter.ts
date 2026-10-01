@@ -126,7 +126,8 @@ export class BarTenderPrinterAdapter implements PrinterAdapter {
     const baseUrl = activeBarTenderConfig.baseUrl.replace(/\/+$/, '');
     const url = `${baseUrl}/BarTender/API/v1/Print`;
 
-    logger.info('BarTenderPrinterAdapter', `Dispatching BarTender print job to ${url}`);
+    const sanitizedUrl = url.replace(/(https?:\/\/)[^@]*@/i, '$1');
+    logger.info('BarTenderPrinterAdapter', `Dispatching BarTender print job to ${sanitizedUrl}`);
 
     const payload = {
       template: request.bartenderTemplate || 'StandardLabel.btw',
@@ -152,31 +153,38 @@ export class BarTenderPrinterAdapter implements PrinterAdapter {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('BarTenderPrinterAdapter', `BarTender API error: ${response.status} ${errorText}`);
+        logger.error('BarTenderPrinterAdapter', `BarTender API error: status ${response.status} for printer "${request.printerName}"`);
+        let safeMsg = '';
+        try {
+          const rawText = await response.text();
+          safeMsg = rawText.slice(0, 120).replace(/[^\w\s\.\-:]/g, '');
+        } catch {
+          // Ignore error and fall back to empty safeMsg if response body cannot be read
+        }
+
         return {
           success: false,
           error: {
             code: `ERR_BARTENDER_${response.status}`,
-            message: `BarTender Print Server returned HTTP ${response.status}: ${errorText}`
+            message: `BarTender Print Server returned HTTP ${response.status}${safeMsg ? `: ${safeMsg}` : ''}`
           }
         };
       }
 
       const result = await response.json();
-      logger.info('BarTenderPrinterAdapter', 'BarTender print job successfully queued', result);
+      logger.info('BarTenderPrinterAdapter', `BarTender print job accepted for ${request.printerName}`);
 
       return {
         success: true,
         jobId: result.jobId || `bt-${Date.now()}`
       };
     } catch (err: any) {
-      logger.error('BarTenderPrinterAdapter', `Failed to connect to BarTender server at ${url}: ${err.message}`);
+      logger.error('BarTenderPrinterAdapter', `Failed to connect to BarTender server at ${sanitizedUrl}: ${err.message}`);
       return {
         success: false,
         error: {
           code: 'ERR_BARTENDER_CONNECTION',
-          message: `Unable to reach BarTender server at ${url}: ${err.message}`
+          message: `Unable to reach BarTender server at ${sanitizedUrl}: ${err.message}`
         }
       };
     }
