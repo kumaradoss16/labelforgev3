@@ -289,7 +289,7 @@ app.whenReady().then(() => {
   logger.info('Main', `LabelForge Studio ${appConfig.version} starting on ${process.platform}...`);
 
   // Initialize workstation session with default local operator role (ensures print availability on boot)
-  sessionManager.initializeSession('usr-op-03', 'Warehouse Operator', 'OPERATOR');
+  sessionManager.initializeSession('usr-op-03', 'Warehouse Operator', 'OPERATOR', false);
 
   registerAllIpcHandlers();
   createMainWindow();

@@ -18,9 +18,10 @@ export function getOptionalSessionPrincipal(): SessionPrincipal | null {
 export function initializeSession(
   userId: string,
   userName: string,
-  role: UserRole
+  role: UserRole,
+  forcePasswordChange: boolean = false
 ): SessionPrincipal {
-  return sessionManager.initializeSession(userId, userName, role);
+  return sessionManager.initializeSession(userId, userName, role, forcePasswordChange);
 }
 
 export function resetSessionPrincipal(): void {

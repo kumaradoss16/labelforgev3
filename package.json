@@ -21,7 +21,7 @@
     "icons": "tsx scripts/generate-icons.ts",
     "test": "vitest run",
     "lint": "eslint \"{src,electron}/**/*.{ts,tsx}\" --max-warnings=0 && tsc --noEmit",
-    "audit": "bun pm audit",
+    "audit": "npm audit --audit-level=high",
     "install:frozen": "bun install --frozen-lockfile"
   },
   "dependencies": {
@@ -47,7 +47,7 @@
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
     "electron": "^44.4.3",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.17.0",
     "esbuild": "^0.25.0",
     "eslint": "^8.57.0",
     "eslint-plugin-react": "^7.37.5",
@@ -59,5 +59,8 @@
     "vite": "^6.2.3",
     "vitest": "^5.0.1",
     "wait-on": "^9.1.0"
+  },
+  "overrides": {
+    "@electron/get": "^5.1.0"
   }
 }

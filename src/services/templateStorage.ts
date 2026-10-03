@@ -105,6 +105,144 @@ export function getStoredTemplates(): TemplateRecord[] {
 }
 
 /**
+ * Generates a clean standalone SVG string representing the template thumbnail
+ */
+export function generateTemplateThumbnailSvg(doc: LabelDocument, sampleData?: Record<string, any>): string {
+  if (!doc) return '';
+  const w = doc.dimensions?.width || 100;
+  const h = doc.dimensions?.height || 150;
+  const rx = doc.dimensions?.cornerRadius || 0;
+
+  const objectsSvg = (doc.objects || [])
+    .filter(obj => obj.visible !== false)
+    .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+    .map(obj => {
+      const transform = obj.rotation ? ` transform="rotate(${obj.rotation} ${obj.x + obj.width / 2} ${obj.y + obj.height / 2})"` : '';
+      const opacity = typeof obj.opacity === 'number' ? ` opacity="${obj.opacity}"` : '';
+
+      switch (obj.type) {
+        case 'text':
+        case 'rich-text': {
+          const textObj = obj as any;
+          const fontSize = textObj.style?.fontSize ? textObj.style.fontSize * 0.352778 : 4;
+          const color = textObj.style?.color || '#000000';
+          const fontWeight = textObj.style?.fontWeight || 'normal';
+          const fontFamily = textObj.style?.fontFamily || 'Inter, sans-serif';
+          const raw = textObj.text || '';
+          const resolved = sampleData ? resolveTemplateVariables(raw, sampleData) : raw;
+          const escaped = resolved
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+          return `<text x="${textObj.x}" y="${textObj.y + textObj.height * 0.8}" font-size="${fontSize}" fill="${color}" font-weight="${fontWeight}" font-family="${fontFamily}"${transform}${opacity}>${escaped}</text>`;
+        }
+        case 'barcode': {
+          const bc = obj as any;
+          const color = bc.barcodeStyle?.color || '#000000';
+          const bg = bc.barcodeStyle?.backgroundColor || 'transparent';
+          const numBars = 20;
+          const barW = bc.width / numBars;
+          let bars = `<rect x="${bc.x}" y="${bc.y}" width="${bc.width}" height="${bc.height}" fill="${bg}"/>`;
+          for (let i = 0; i < numBars; i++) {
+            if (i % 2 === 0 || i % 5 === 0) {
+              bars += `<rect x="${bc.x + i * barW}" y="${bc.y}" width="${barW * 0.8}" height="${bc.height * (bc.barcodeStyle?.humanReadable ? 0.8 : 1)}" fill="${color}"/>`;
+            }
+          }
+          if (bc.barcodeStyle?.humanReadable) {
+            const rawVal = bc.value || '12345678';
+            const val = sampleData ? resolveTemplateVariables(rawVal, sampleData) : rawVal;
+            const escaped = val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            bars += `<text x="${bc.x + bc.width / 2}" y="${bc.y + bc.height - 0.5}" font-size="${Math.min(3, bc.height * 0.18)}" text-anchor="middle" fill="${color}" font-family="monospace">${escaped}</text>`;
+          }
+          return `<g${transform}${opacity}>${bars}</g>`;
+        }
+        case 'qrcode':
+        case 'datamatrix': {
+          const qr = obj as any;
+          const color = qr.barcodeStyle?.color || '#000000';
+          const bg = qr.barcodeStyle?.backgroundColor || '#ffffff';
+          const gridSize = 6;
+          const cell = Math.min(qr.width, qr.height) / gridSize;
+          let cells = `<rect x="${qr.x}" y="${qr.y}" width="${qr.width}" height="${qr.height}" fill="${bg}"/>`;
+          for (let r = 0; r < gridSize; r++) {
+            for (let c = 0; c < gridSize; c++) {
+              if ((r + c) % 2 === 0 || (r === 0 && c === 0) || (r === 0 && c === gridSize - 1)) {
+                cells += `<rect x="${qr.x + c * cell}" y="${qr.y + r * cell}" width="${cell}" height="${cell}" fill="${color}"/>`;
+              }
+            }
+          }
+          return `<g${transform}${opacity}>${cells}</g>`;
+        }
+        case 'rect': {
+          const shape = obj as any;
+          const fill = shape.shapeStyle?.fillColor || 'transparent';
+          const stroke = shape.shapeStyle?.strokeColor || '#000000';
+          const sw = shape.shapeStyle?.strokeWidth || 0.5;
+          const r = shape.shapeStyle?.borderRadius || 0;
+          return `<rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" rx="${r}" ry="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${transform}${opacity}/>`;
+        }
+        case 'ellipse': {
+          const shape = obj as any;
+          const fill = shape.shapeStyle?.fillColor || 'transparent';
+          const stroke = shape.shapeStyle?.strokeColor || '#000000';
+          const sw = shape.shapeStyle?.strokeWidth || 0.5;
+          return `<ellipse cx="${shape.x + shape.width / 2}" cy="${shape.y + shape.height / 2}" rx="${shape.width / 2}" ry="${shape.height / 2}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"${transform}${opacity}/>`;
+        }
+        case 'line': {
+          const shape = obj as any;
+          const stroke = shape.shapeStyle?.strokeColor || '#000000';
+          const sw = shape.shapeStyle?.strokeWidth || 0.5;
+          return `<line x1="${shape.x}" y1="${shape.y}" x2="${shape.x + shape.width}" y2="${shape.y + shape.height}" stroke="${stroke}" stroke-width="${sw}"${transform}${opacity}/>`;
+        }
+        case 'image': {
+          const img = obj as any;
+          return `<image href="${img.src}" x="${img.x}" y="${img.y}" width="${img.width}" height="${img.height}" preserveAspectRatio="none"${transform}${opacity}/>`;
+        }
+        default:
+          return '';
+      }
+    })
+    .join('');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><rect width="${w}" height="${h}" rx="${rx}" ry="${rx}" fill="#ffffff"/>${objectsSvg}</svg>`;
+}
+
+/**
+ * Asynchronously fetches all stored templates, ensuring each has an attached visual thumbnail
+ */
+export async function fetchStoredTemplates(): Promise<TemplateRecord[]> {
+  // Simulate realistic async retrieval
+  await new Promise(resolve => setTimeout(resolve, 30));
+
+  const templates = getStoredTemplates();
+
+  // Attach visual thumbnail SVG / data URL to any template missing one
+  return templates.map(tpl => {
+    if (!tpl.thumbnailSvg && tpl.document) {
+      const svg = generateTemplateThumbnailSvg(tpl.document, tpl.sampleData);
+      tpl.thumbnailSvg = svg;
+      tpl.thumbnail = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    }
+    return tpl;
+  });
+}
+
+/**
+ * Fetches or generates a visual thumbnail data URL for a given template
+ */
+export async function fetchTemplateThumbnail(template: TemplateRecord): Promise<string> {
+  if (template.thumbnail) return template.thumbnail;
+  if (template.thumbnailSvg) {
+    return `data:image/svg+xml;utf8,${encodeURIComponent(template.thumbnailSvg)}`;
+  }
+  const svg = generateTemplateThumbnailSvg(template.document, template.sampleData);
+  template.thumbnailSvg = svg;
+  template.thumbnail = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return template.thumbnail;
+}
+
+/**
  * Persists all templates to storage
  */
 export function persistTemplates(templates: TemplateRecord[]): void {

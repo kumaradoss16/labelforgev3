@@ -18,6 +18,7 @@ export interface SessionPrincipal {
   authenticationMethod: 'WINDOWS' | 'DOMAIN' | 'OIDC' | 'LOCAL';
   authenticatedAt: number;
   expiresAt: number;
+  forcePasswordChange?: boolean;
 }
 
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
@@ -45,7 +46,8 @@ export class SessionManager {
       role: identity.role,
       authenticationMethod: identity.authenticationMethod,
       authenticatedAt: now,
-      expiresAt: now + ttlMs
+      expiresAt: now + ttlMs,
+      forcePasswordChange: Boolean(identity.forcePasswordChange)
     };
 
     logger.info('SessionManager', `Authenticated session created for '${identity.userName}' (role: ${identity.role}, id: ${sessionId.slice(0, 8)}...)`);
@@ -59,15 +61,31 @@ export class SessionManager {
   public initializeSession(
     userId: string,
     userName: string,
-    role: UserRole
+    role: UserRole,
+    forcePasswordChange: boolean = false
   ): SessionPrincipal {
     const identity: AuthenticatedIdentity = {
       userId,
       userName,
       role,
-      authenticationMethod: 'LOCAL'
+      authenticationMethod: 'LOCAL',
+      forcePasswordChange
     };
     return this.createAuthenticatedSession(identity);
+  }
+
+  /**
+   * Clears the forcePasswordChange flag in the active session if it matches userId
+   */
+  public clearPasswordChangeRequirement(userId: string): void {
+    if (
+      this.currentSession &&
+      (this.currentSession.userId === userId ||
+        this.currentSession.userName.toLowerCase() === userId.toLowerCase())
+    ) {
+      this.currentSession.forcePasswordChange = false;
+      logger.info('SessionManager', `Password change requirement cleared for active session "${this.currentSession.userName}".`);
+    }
   }
 
   /**

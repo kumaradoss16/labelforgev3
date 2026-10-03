@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { TemplateRecord } from '../../types/template';
 import { TemplatePreviewCanvas } from './TemplatePreviewCanvas';
+import { TemplateThumbnail } from './TemplateThumbnail';
 
 interface TemplateCardProps {
   template: TemplateRecord;
@@ -99,12 +100,14 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
           {/* Miniature Thumbnail */}
           <div
             onClick={() => onInspect(template)}
-            className="w-20 h-14 flex-shrink-0 cursor-pointer rounded overflow-hidden border border-[#343a4a] group-hover:border-blue-400 transition-colors"
+            className="flex-shrink-0 cursor-pointer"
+            title={`Preview ${template.name}`}
           >
-            <TemplatePreviewCanvas
-              document={template.document}
-              sampleData={template.sampleData}
-              className="w-full h-full p-1 bg-black/40"
+            <TemplateThumbnail
+              template={template}
+              size="sm"
+              showHoverZoom
+              className="hover:ring-2 hover:ring-blue-500/80 transition-all shadow-md bg-black/40"
             />
           </div>
 
@@ -371,10 +374,11 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
         onClick={() => onInspect(template)}
         className="relative h-44 w-full p-2 bg-[#12141a] cursor-pointer group-hover:bg-[#15171e] transition-colors flex items-center justify-center overflow-hidden border-b border-[#2d323e]"
       >
-        <TemplatePreviewCanvas
-          document={template.document}
-          sampleData={template.sampleData}
-          className="w-full h-full max-h-40"
+        <TemplateThumbnail
+          template={template}
+          size="full"
+          showBadge
+          className="w-full h-full max-h-40 bg-transparent border-0"
         />
 
         {/* Hover Quick Action Overlay */}

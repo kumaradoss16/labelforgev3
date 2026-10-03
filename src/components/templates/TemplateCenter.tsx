@@ -31,6 +31,7 @@ import {
 import { TemplateRecord, TemplateFilterState, TemplateCategory } from '../../types/template';
 import {
   getStoredTemplates,
+  fetchStoredTemplates,
   searchAndFilterTemplates,
   toggleTemplateFavorite,
   deleteTemplate,
@@ -42,6 +43,7 @@ import {
   restoreTemplateVersion
 } from '../../services/templateStorage';
 import { TemplateCard } from './TemplateCard';
+import { TemplateThumbnail } from './TemplateThumbnail';
 import { TemplateDetailsDrawer } from './TemplateDetailsDrawer';
 import { NewTemplateModal } from './NewTemplateModal';
 import { TemplateVersionHistoryModal } from './TemplateVersionHistoryModal';
@@ -72,6 +74,7 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
   onClose,
 }) => {
   const [templates, setTemplates] = useState<TemplateRecord[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCategory, setSelectedCategory] = useState<TemplateCategory | 'all'>('all');
   const [selectedType, setSelectedType] = useState<TemplateFilterState['type']>('all');
@@ -88,9 +91,17 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const refreshTemplates = () => {
-    const loaded = getStoredTemplates();
-    setTemplates(loaded);
+  const refreshTemplates = async () => {
+    setIsLoading(true);
+    try {
+      const loaded = await fetchStoredTemplates();
+      setTemplates(loaded);
+    } catch (err) {
+      console.error('Failed to fetch templates:', err);
+      setTemplates(getStoredTemplates());
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleOpenVersionHistory = (template: TemplateRecord) => {
@@ -291,6 +302,19 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
           )}
 
           <button
+            onClick={() => {
+              refreshTemplates();
+              showFeedback('success', 'Refreshed template thumbnails & library.');
+            }}
+            disabled={isLoading}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#232733] hover:bg-[#2c3242] text-xs text-gray-200 font-medium border border-[#333948] transition-colors disabled:opacity-50"
+            title="Fetch and refresh template library and thumbnails"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-blue-400 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
+          <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#232733] hover:bg-[#2c3242] text-xs text-gray-200 font-medium border border-[#333948] transition-colors"
             title="Import .lforge or .lftemplate package"
@@ -419,6 +443,48 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
                 })}
               </div>
             </div>
+
+            {/* Quick Favorites with Small Visual Thumbnails */}
+            {templates.filter(t => t.favorite).length > 0 && (
+              <div className="pt-2 border-t border-[#272b36]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-2 flex items-center justify-between mb-1.5">
+                  <span className="flex items-center space-x-1">
+                    <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                    <span>Quick Favorites</span>
+                  </span>
+                  <span className="text-[9px] font-mono text-gray-500">
+                    {templates.filter(t => t.favorite).length}
+                  </span>
+                </span>
+                <div className="space-y-1.5 pr-0.5 max-h-48 overflow-y-auto scrollbar-thin">
+                  {templates
+                    .filter(t => t.favorite)
+                    .slice(0, 5)
+                    .map((favTpl) => (
+                      <div
+                        key={`quick-fav-${favTpl.id}`}
+                        onClick={() => setInspectedTemplate(favTpl)}
+                        className="group flex items-center space-x-2.5 p-1.5 rounded-lg bg-[#111319] hover:bg-[#1f232d] border border-[#272b36] hover:border-blue-500/50 cursor-pointer transition-all"
+                        title={`Quick Inspect ${favTpl.name}`}
+                      >
+                        <TemplateThumbnail
+                          template={favTpl}
+                          size="xs"
+                          className="bg-black/40 border-[#333949]"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[11px] font-medium text-gray-200 group-hover:text-blue-400 truncate block">
+                            {favTpl.name}
+                          </span>
+                          <span className="text-[9px] font-mono text-gray-500">
+                            {favTpl.width}×{favTpl.height} {favTpl.unit}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer of Sidebar */}
@@ -517,7 +583,33 @@ export const TemplateCenter: React.FC<TemplateCenterProps> = ({
 
           {/* Templates Grid/List View Container */}
           <div className="flex-1 overflow-y-auto p-5">
-            {filteredTemplates.length > 0 ? (
+            {isLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-pulse">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={`skeleton-${i}`}
+                    className="bg-[#1a1d26] border border-[#272b38] rounded-xl overflow-hidden p-3 space-y-3 shadow-md"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div className="h-4 bg-gray-700/50 rounded w-24" />
+                      <div className="h-4 bg-gray-700/50 rounded w-12" />
+                    </div>
+                    {/* Visual Thumbnail Skeleton Box */}
+                    <div className="h-44 bg-[#11131a] rounded-lg flex items-center justify-center border border-[#262a36]">
+                      <div className="w-24 h-32 bg-gray-700/30 rounded border border-gray-600/20" />
+                    </div>
+                    <div className="space-y-1.5 pt-1">
+                      <div className="h-3.5 bg-gray-700/50 rounded w-3/4" />
+                      <div className="h-2.5 bg-gray-700/30 rounded w-full" />
+                    </div>
+                    <div className="pt-2 border-t border-[#262a36] flex justify-between">
+                      <div className="h-3 bg-gray-700/40 rounded w-16" />
+                      <div className="h-3 bg-gray-700/40 rounded w-12" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredTemplates.length > 0 ? (
               viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {filteredTemplates.map((tpl) => (

@@ -54,7 +54,13 @@ export function registerPrinterHandlers(): void {
   });
 
   // Print Label Request - Strict Hardened Boundary
-  ipcMain.handle('printer:print', async (event, rawRequest: unknown): Promise<PrintJobResponse> => {
+  ipcMain.handle('printer:print', handlePrinterPrint);
+
+  // Test Print - Strictly Authorized
+  ipcMain.handle('printer:test', (event, printerNameRaw: unknown, protocolRaw?: unknown) => handlePrinterTest(event, printerNameRaw, protocolRaw));
+}
+
+export async function handlePrinterPrint(event: any, rawRequest: unknown): Promise<PrintJobResponse> {
     assertTrustedRenderer(event);
 
     // 1. Runtime schema validation
@@ -63,6 +69,28 @@ export function registerPrinterHandlers(): void {
 
     // 2. Main-Process Authenticated Principal (Never from renderer!)
     const principal = getSessionPrincipal();
+
+    // Enforce mandatory password rotation before first privileged action
+    if (principal.forcePasswordChange) {
+      auditService.recordEvent({
+        action: 'PRINT_JOB_REQUESTED',
+        user: principal.userName,
+        role: principal.role,
+        resource: request.printerName,
+        result: 'DENIED',
+        details: { jobId, reason: 'FORCE_PASSWORD_CHANGE' },
+        errorMessage: 'Password change is required before performing privileged actions.'
+      });
+
+      return {
+        success: false,
+        jobId,
+        error: {
+          code: 'ERR_PASSWORD_CHANGE_REQUIRED',
+          message: 'Password change is required before performing privileged actions.'
+        }
+      };
+    }
 
     // 3. Authorization check
     if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.PRINT)) {
@@ -280,10 +308,9 @@ export function registerPrinterHandlers(): void {
         }
       };
     }
-  });
+}
 
-  // Test Print - Strictly Authorized
-  ipcMain.handle('printer:test', async (event, printerNameRaw: unknown, protocolRaw?: unknown): Promise<PrintJobResponse> => {
+export async function handlePrinterTest(event: any, printerNameRaw: unknown, protocolRaw?: unknown): Promise<PrintJobResponse> {
     assertTrustedRenderer(event);
 
     const validated = TestPrintCommandSchema.parse({
@@ -292,6 +319,26 @@ export function registerPrinterHandlers(): void {
     });
 
     const principal = getSessionPrincipal();
+
+    // Enforce mandatory password rotation before first privileged action
+    if (principal.forcePasswordChange) {
+      auditService.recordEvent({
+        action: 'TEST_PRINT_DISPATCHED',
+        user: principal.userName,
+        role: principal.role,
+        resource: validated.printerName,
+        result: 'DENIED',
+        errorMessage: 'Password change is required before performing privileged actions.'
+      });
+
+      return {
+        success: false,
+        error: {
+          code: 'ERR_PASSWORD_CHANGE_REQUIRED',
+          message: 'Password change is required before performing privileged actions.'
+        }
+      };
+    }
 
     if (!checkPermission(principal.role, PRIVILEGED_ACTIONS.TEST_PRINT)) {
       auditService.recordEvent({
@@ -363,5 +410,4 @@ export function registerPrinterHandlers(): void {
         }
       };
     }
-  });
 }

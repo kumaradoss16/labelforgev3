@@ -135,6 +135,13 @@ export async function desktopLogin(credentials: { username: string; password?: s
   return { success: true };
 }
 
+export async function desktopChangePassword(data: { userId: string; oldPassword: string; newPassword: string }) {
+  if (isDesktopApp() && window.electronAPI?.auth?.changePassword) {
+    return await window.electronAPI.auth.changePassword(data);
+  }
+  return { success: true };
+}
+
 export async function desktopLogout() {
   if (isDesktopApp() && window.electronAPI?.auth?.logout) {
     return await window.electronAPI.auth.logout();

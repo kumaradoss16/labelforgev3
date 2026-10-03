@@ -7,11 +7,116 @@ import { ipcMain, app, BrowserWindow } from 'electron';
 import { paths } from '../../config/paths';
 import { appConfig } from '../../config/appConfig';
 import { assertTrustedRenderer } from '../../security/senderValidation';
+import { LoginCredentialsSchema, ChangePasswordSchema } from '../../security/schemas';
 import { localAuthProvider } from '../../services/auth/authProvider';
 import { sessionManager } from '../../services/SessionManager';
 import { auditService } from '../../services/system/auditService';
 import { logger } from '../../utils/logger';
 import { UserRole } from '../../../src/types/printer';
+
+// Real authentication provider login with strict schema validation and verified identity mapping
+export async function handleAuthLogin(event: any, rawCredentials: unknown) {
+  assertTrustedRenderer(event);
+
+  const parsed = LoginCredentialsSchema.safeParse(rawCredentials);
+  if (!parsed.success) {
+    logger.warn('AppHandlers', 'Rejected malformed login request');
+    return { success: false, error: 'Invalid login request format' };
+  }
+  const { username, password } = parsed.data;
+
+  const user = await localAuthProvider.getUserByUsername(username);
+  if (!user) {
+    logger.warn('AppHandlers', `Authentication failed: unknown user "${username}"`);
+    auditService.recordEvent({
+      action: 'USER_LOGIN',
+      user: username,
+      role: 'UNKNOWN',
+      resource: 'AUTH_SERVICE',
+      result: 'FAILURE',
+      errorMessage: 'Unknown user'
+    });
+    return { success: false, error: 'Invalid credentials' };
+  }
+
+  const verified = await localAuthProvider.verify(user.userId, password || '');
+  if (!verified) {
+    logger.warn('AppHandlers', `Authentication failed for user "${username}": invalid credentials`);
+    auditService.recordEvent({
+      action: 'USER_LOGIN',
+      user: user.userName,
+      role: user.role,
+      resource: 'AUTH_SERVICE',
+      result: 'FAILURE',
+      errorMessage: 'Invalid credentials'
+    });
+    return { success: false, error: 'Invalid credentials' };
+  }
+
+  // role ALWAYS comes from the verified identity record — never from the request
+  const principal = sessionManager.initializeSession(
+    user.userId,
+    user.userName,
+    user.role,
+    user.forcePasswordChange
+  );
+
+  logger.info('AppHandlers', `User "${principal.userName}" logged in successfully with role "${principal.role}".`);
+  auditService.recordEvent({
+    action: 'USER_LOGIN',
+    user: principal.userName,
+    role: principal.role,
+    resource: 'AUTH_SERVICE',
+    result: 'SUCCESS',
+    details: { authenticationMethod: user.authenticationMethod, userId: principal.userId }
+  });
+
+  return {
+    success: true,
+    principal,
+    requiresPasswordChange: Boolean(user.forcePasswordChange)
+  };
+}
+
+// Password rotation handler with policy enforcement
+export async function handleAuthChangePassword(event: any, rawPayload: unknown) {
+  assertTrustedRenderer(event);
+
+  const parsed = ChangePasswordSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    logger.warn('AppHandlers', 'Rejected malformed change-password request');
+    return { success: false, error: 'Invalid password change request format' };
+  }
+
+  const { userId, oldPassword, newPassword } = parsed.data;
+  const result = await localAuthProvider.changePassword(userId, oldPassword, newPassword);
+
+  if (!result.success) {
+    auditService.recordEvent({
+      action: 'PASSWORD_CHANGE',
+      user: userId,
+      role: 'UNKNOWN',
+      resource: 'AUTH_SERVICE',
+      result: 'FAILURE',
+      errorMessage: result.error || 'Password change failed'
+    });
+    return result;
+  }
+
+  sessionManager.clearPasswordChangeRequirement(userId);
+
+  const user = await localAuthProvider.getUserById(userId);
+  auditService.recordEvent({
+    action: 'PASSWORD_CHANGE',
+    user: user?.userName || userId,
+    role: user?.role || 'OPERATOR',
+    resource: 'AUTH_SERVICE',
+    result: 'SUCCESS',
+    details: { userId }
+  });
+
+  return { success: true };
+}
 
 export function registerAppHandlers(): void {
   ipcMain.handle('app:get-info', async (event) => {
@@ -71,80 +176,8 @@ export function registerAppHandlers(): void {
   // AUTHENTICATION IPC
   // --------------------------------------------------------------------------
 
-  // Real authentication provider login with verification and session initialization
-  ipcMain.handle('auth:login', async (event, ...args: any[]) => {
-    assertTrustedRenderer(event);
-
-    let userId: string = '';
-    let userName: string = '';
-    let role: UserRole = 'OPERATOR';
-    let credential = '';
-
-    if (typeof args[0] === 'string') {
-      // Positional: (userId, userName, role, credential)
-      userId = args[0];
-      userName = args[1] || '';
-      role = (args[2] as UserRole) || 'OPERATOR';
-      credential = args[3] || '';
-    } else if (typeof args[0] === 'object' && args[0] !== null) {
-      // Object: { username / userId, password / credential, role?, ... }
-      const obj = args[0];
-      const usernameInput = (obj.username || obj.userId || '').trim();
-      credential = obj.password || obj.credential || '';
-
-      const user = await localAuthProvider.getUserById(usernameInput) ||
-                   await localAuthProvider.getUserByUsername(usernameInput);
-      if (user) {
-        userId = user.userId;
-        userName = user.userName;
-        role = (obj.role as UserRole) || user.role;
-      } else {
-        userId = usernameInput;
-        userName = obj.userName || usernameInput;
-        role = (obj.role as UserRole) || 'OPERATOR';
-      }
-    }
-
-    const verified = await localAuthProvider.verify(userId, credential);
-    if (!verified) {
-      logger.warn('AppHandlers', `Authentication failed for user "${userId}": Invalid credentials`);
-      auditService.recordEvent({
-        action: 'USER_LOGIN',
-        user: userName || userId,
-        role: role || 'UNKNOWN',
-        resource: 'AUTH_SERVICE',
-        result: 'FAILURE',
-        errorMessage: 'Invalid credentials'
-      });
-      return { success: false, error: 'Invalid credentials' };
-    }
-
-    // Resolve userName and role from verified user profile if not passed
-    const user = await localAuthProvider.getUserById(userId) ||
-                 await localAuthProvider.getUserByUsername(userId);
-    if (user) {
-      userName = userName || user.userName;
-      role = role || user.role;
-    }
-
-    sessionManager.initializeSession(userId, userName, role);
-    const principal = sessionManager.requireAuthenticated();
-
-    logger.info('AppHandlers', `User "${principal.userName}" logged in successfully with role "${principal.role}".`);
-    auditService.recordEvent({
-      action: 'USER_LOGIN',
-      user: principal.userName,
-      role: principal.role,
-      resource: 'AUTH_SERVICE',
-      result: 'SUCCESS',
-      details: { authenticationMethod: principal.authenticationMethod, userId: principal.userId }
-    });
-
-    return {
-      success: true,
-      principal
-    };
-  });
+  ipcMain.handle('auth:login', handleAuthLogin);
+  ipcMain.handle('auth:change-password', handleAuthChangePassword);
 
   // Explicit session logout
   ipcMain.handle('auth:logout', async (event) => {

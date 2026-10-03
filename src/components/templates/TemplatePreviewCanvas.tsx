@@ -7,21 +7,24 @@ import {
   ShapeLabelObject,
   ImageLabelObject,
 } from '../../types/label';
+import { resolveTemplateVariables } from '../../services/templateStorage';
 
 interface TemplatePreviewCanvasProps {
   document: LabelDocument;
+  sampleData?: Record<string, any>;
   className?: string;
   showGrid?: boolean;
 }
 
 export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
   document,
+  sampleData,
   className = '',
   showGrid = false,
 }) => {
-  const viewBoxWidth = document.dimensions?.width || 100;
-  const viewBoxHeight = document.dimensions?.height || 150;
-  const cornerRadius = document.dimensions?.cornerRadius || 0;
+  const viewBoxWidth = document?.dimensions?.width || 100;
+  const viewBoxHeight = document?.dimensions?.height || 150;
+  const cornerRadius = document?.dimensions?.cornerRadius || 0;
 
   const renderObject = (obj: LabelObject) => {
     if (!obj.visible) return null;
@@ -38,6 +41,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
         const fontWeight = textObj.style?.fontWeight || 'normal';
         const fontFamily = textObj.style?.fontFamily || 'Inter, sans-serif';
 
+        const rawText = textObj.text || 'Text';
+        const displayText = sampleData ? resolveTemplateVariables(rawText, sampleData) : rawText;
+
         return (
           <text
             key={key}
@@ -50,7 +56,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
             transform={transform}
             opacity={textObj.opacity ?? 1}
           >
-            {textObj.text || 'Text'}
+            {displayText}
           </text>
         );
       }
@@ -60,6 +66,9 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
         const fill = barcodeObj.barcodeStyle?.color || '#000000';
         const numBars = 24;
         const barWidth = barcodeObj.width / numBars;
+
+        const rawValue = barcodeObj.value || '12345678';
+        const displayValue = sampleData ? resolveTemplateVariables(rawValue, sampleData) : rawValue;
 
         return (
           <g key={key} transform={transform} opacity={barcodeObj.opacity ?? 1}>
@@ -97,7 +106,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
                 fill={fill}
                 fontFamily="Courier, monospace"
               >
-                {barcodeObj.value || '12345678'}
+                {displayValue}
               </text>
             )}
           </g>
@@ -266,7 +275,7 @@ export const TemplatePreviewCanvas: React.FC<TemplatePreviewCanvasProps> = ({
         )}
 
         {/* Sort objects by z-index */}
-        {[...document.objects]
+        {[...(document?.objects || [])]
           .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
           .map(renderObject)}
       </svg>

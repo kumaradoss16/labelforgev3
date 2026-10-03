@@ -88,11 +88,6 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
         const promptRes = window.prompt(`Authenticate as ${role} (${username}). Enter password:`);
         if (promptRes === null) return;
         password = promptRes;
-      } else {
-        // Test harness credential
-        password = role === 'SYSTEM_ADMIN' ? 'AdminSecurePass2026!'
-          : (role === 'PRINT_MANAGER' ? 'ManagerSecurePass2026!'
-          : (role === 'OPERATOR' ? 'OperatorPass2026!' : 'ViewerPass2026!'));
       }
 
       const res = await (window as any).electronAPI.auth.login({ username, password });
@@ -102,6 +97,34 @@ export const IdentityProvider: React.FC<{ children: React.ReactNode; initialIden
       }
 
       const session = res.principal;
+
+      // Mandatory password change gate on first-time use
+      if (res.requiresPasswordChange) {
+        let newPassword = '';
+        if (!isTesting) {
+          const newPassInput = window.prompt(
+            `Password rotation required on first login for "${username}". Enter new password (min 8 chars, uppercase, lowercase, number/symbol):`
+          );
+          if (!newPassInput) {
+            window.alert('Password rotation is mandatory to access workstation features. Login aborted.');
+            return;
+          }
+          newPassword = newPassInput;
+        } else {
+          newPassword = 'NewSecurePassword2026!';
+        }
+
+        const changeRes = await (window as any).electronAPI.auth.changePassword({
+          userId: session.userId,
+          oldPassword: password,
+          newPassword
+        });
+
+        if (!changeRes || !changeRes.success) {
+          window.alert(changeRes?.error || 'Password rotation failed. Must satisfy policy requirements.');
+          return;
+        }
+      }
       const newIdentity: UserIdentity = {
         userId: session.userId,
         userName: session.userName,

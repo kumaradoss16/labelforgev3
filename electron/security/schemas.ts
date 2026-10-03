@@ -11,6 +11,12 @@ export const LoginCredentialsSchema = z.object({
   domain: z.string().max(100).optional()
 }).strict();
 
+export const ChangePasswordSchema = z.object({
+  userId: z.string().min(1, 'User ID is required').max(100),
+  oldPassword: z.string().min(1, 'Existing password is required').max(256),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters').max(256)
+}).strict();
+
 export const PrintCommandSchema = z.object({
   jobId: z.string().optional(),
   printerName: z.string().min(1, 'Printer name is required').max(256),

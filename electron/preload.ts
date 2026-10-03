@@ -61,7 +61,10 @@ const electronAPI = {
   },
 
   auth: {
-    login: (...args: any[]) => ipcRenderer.invoke('auth:login', ...args),
+    login: (credentials: { username: string; password?: string; domain?: string }) =>
+      ipcRenderer.invoke('auth:login', credentials),
+    changePassword: (data: { userId: string; oldPassword: string; newPassword: string }) =>
+      ipcRenderer.invoke('auth:change-password', data),
     logout: () => ipcRenderer.invoke('auth:logout'),
     getSession: () => ipcRenderer.invoke('auth:get-session'),
     updateRole: (role: string, credentialToken?: string) => ipcRenderer.invoke('auth:update-role', role, credentialToken)

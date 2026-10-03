@@ -14,6 +14,7 @@ export interface AuthenticatedIdentity {
   role: UserRole;
   authenticationMethod: 'WINDOWS' | 'DOMAIN' | 'OIDC' | 'LOCAL';
   metadata?: Record<string, string>;
+  forcePasswordChange?: boolean;
 }
 
 export interface AuthenticationCredentials {
@@ -25,7 +26,9 @@ export interface AuthenticationCredentials {
 export interface AuthenticationProvider {
   authenticate(credentials: AuthenticationCredentials): Promise<AuthenticatedIdentity>;
   getUserById(userId: string): Promise<AuthenticatedIdentity | null>;
+  getUserByUsername?(username: string): Promise<AuthenticatedIdentity | null>;
   verify?(userId: string, credential: string): Promise<boolean>;
+  changePassword?(userId: string, oldPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }>;
 }
 
 interface StoredCredential {
@@ -36,6 +39,26 @@ interface StoredCredential {
   hash: string;
   lockedUntil?: number;
   failedAttempts: number;
+  forcePasswordChange: boolean;
+}
+
+/**
+ * Validates password strength policy
+ */
+export function validatePasswordPolicy(password: string): { valid: boolean; error?: string } {
+  if (!password || password.length < 8) {
+    return { valid: false, error: 'Password must be at least 8 characters long.' };
+  }
+  if (password.length > 256) {
+    return { valid: false, error: 'Password must not exceed 256 characters.' };
+  }
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasDigitOrSpecial = /[\d\W_]/.test(password);
+  if (!hasUpper || !hasLower || !hasDigitOrSpecial) {
+    return { valid: false, error: 'Password must include uppercase, lowercase, and a number or symbol.' };
+  }
+  return { valid: true };
 }
 
 /**
@@ -63,54 +86,107 @@ export function verifyPassword(password: string, salt: string, expectedHash: str
  */
 export class LocalAuthenticationProvider implements AuthenticationProvider {
   private users: Map<string, StoredCredential> = new Map();
+  private initialPasswordsForTesting: Map<string, string> = new Map();
 
   constructor() {
     this.seedDefaultUsers();
   }
 
   private seedDefaultUsers(): void {
-    // Generate unique random salts for industrial workstation defaults
-    const saltAdmin = crypto.randomBytes(16).toString('hex');
-    const saltMgr = crypto.randomBytes(16).toString('hex');
-    const saltOp = crypto.randomBytes(16).toString('hex');
-    const saltViewer = crypto.randomBytes(16).toString('hex');
+    const seedConfig: Array<{ key: string; userId: string; userName: string; role: UserRole }> = [
+      { key: 'admin', userId: 'usr-admin-01', userName: 'System Administrator', role: 'SYSTEM_ADMIN' },
+      { key: 'manager', userId: 'usr-mgr-02', userName: 'Print Operations Manager', role: 'PRINT_MANAGER' },
+      { key: 'operator', userId: 'usr-op-03', userName: 'Warehouse Operator', role: 'OPERATOR' },
+      { key: 'viewer', userId: 'usr-viewer-04', userName: 'Guest Viewer', role: 'VIEWER' }
+    ];
 
-    // Secure hashed credentials
-    this.users.set('admin', {
-      userId: 'usr-admin-01',
-      userName: 'System Administrator',
-      role: 'SYSTEM_ADMIN',
-      salt: saltAdmin,
-      hash: hashPassword('AdminSecurePass2026!', saltAdmin),
-      failedAttempts: 0
-    });
+    for (const cfg of seedConfig) {
+      const initialPassword = crypto.randomBytes(12).toString('base64url'); // ~16 char random secret
+      const salt = crypto.randomBytes(16).toString('hex');
+      this.users.set(cfg.key, {
+        userId: cfg.userId,
+        userName: cfg.userName,
+        role: cfg.role,
+        salt,
+        hash: hashPassword(initialPassword, salt),
+        failedAttempts: 0,
+        forcePasswordChange: true
+      });
 
-    this.users.set('manager', {
-      userId: 'usr-mgr-02',
-      userName: 'Print Operations Manager',
-      role: 'PRINT_MANAGER',
-      salt: saltMgr,
-      hash: hashPassword('ManagerSecurePass2026!', saltMgr),
-      failedAttempts: 0
-    });
+      this.initialPasswordsForTesting.set(cfg.key, initialPassword);
 
-    this.users.set('operator', {
-      userId: 'usr-op-03',
-      userName: 'Warehouse Operator',
-      role: 'OPERATOR',
-      salt: saltOp,
-      hash: hashPassword('OperatorPass2026!', saltOp),
-      failedAttempts: 0
-    });
+      // Surfaced once, at startup, so the deploying administrator can retrieve it.
+      // This must NOT be written to the audit log or any persisted file — console only.
+      logger.warn('AuthProvider', `[FIRST-RUN SETUP] Generated initial password for account "${cfg.key}" (${cfg.role}): ${initialPassword}`);
+      logger.warn('AuthProvider', `[FIRST-RUN SETUP] This password will not be shown again. Change it immediately after first login.`);
+    }
+  }
 
-    this.users.set('viewer', {
-      userId: 'usr-viewer-04',
-      userName: 'Guest Viewer',
-      role: 'VIEWER',
-      salt: saltViewer,
-      hash: hashPassword('ViewerPass2026!', saltViewer),
-      failedAttempts: 0
-    });
+  /**
+   * Test-mode helper to capture generated random passwords without hardcoding secrets
+   */
+  public getInitialPasswordForTesting(usernameKey: string): string | undefined {
+    return this.initialPasswordsForTesting.get(usernameKey.trim().toLowerCase());
+  }
+
+  /**
+   * Changes user password, verifies old password and policy, hashes with fresh salt, and clears forcePasswordChange
+   */
+  public async changePassword(
+    userIdOrUsername: string,
+    oldPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!userIdOrUsername || !oldPassword || !newPassword) {
+      return { success: false, error: 'User ID, existing password, and new password are required.' };
+    }
+
+    const cleanKey = userIdOrUsername.trim().toLowerCase();
+    let stored: StoredCredential | undefined = this.users.get(cleanKey);
+    if (!stored) {
+      for (const u of this.users.values()) {
+        if (u.userId.toLowerCase() === cleanKey || u.userName.toLowerCase() === cleanKey) {
+          stored = u;
+          break;
+        }
+      }
+    }
+
+    if (!stored) {
+      logger.warn('AuthProvider', `Password change failed: user "${userIdOrUsername}" not found`);
+      return { success: false, error: 'User not found.' };
+    }
+
+    // Verify old password
+    const isOldValid = verifyPassword(oldPassword, stored.salt, stored.hash);
+    if (!isOldValid) {
+      logger.warn('AuthProvider', `Password change failed: incorrect old password for user "${stored.userName}"`);
+      return { success: false, error: 'Incorrect existing password.' };
+    }
+
+    // Validate password policy
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.valid) {
+      return { success: false, error: policy.error || 'Password does not meet complexity requirements.' };
+    }
+
+    // Ensure new password is not identical to old password
+    if (oldPassword === newPassword) {
+      return { success: false, error: 'New password cannot be identical to current password.' };
+    }
+
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    stored.salt = newSalt;
+    stored.hash = hashPassword(newPassword, newSalt);
+    stored.forcePasswordChange = false;
+    stored.failedAttempts = 0;
+    stored.lockedUntil = undefined;
+
+    this.initialPasswordsForTesting.delete(cleanKey);
+    this.initialPasswordsForTesting.delete(stored.userId.toLowerCase());
+
+    logger.info('AuthProvider', `Password successfully changed for user "${stored.userName}".`);
+    return { success: true };
   }
 
   public async authenticate(credentials: AuthenticationCredentials): Promise<AuthenticatedIdentity> {
@@ -157,6 +233,7 @@ export class LocalAuthenticationProvider implements AuthenticationProvider {
       userName: stored.userName,
       role: stored.role,
       authenticationMethod: 'LOCAL',
+      forcePasswordChange: Boolean(stored.forcePasswordChange),
       metadata: {
         accountName: usernameKey
       }
@@ -170,7 +247,8 @@ export class LocalAuthenticationProvider implements AuthenticationProvider {
           userId: stored.userId,
           userName: stored.userName,
           role: stored.role,
-          authenticationMethod: 'LOCAL'
+          authenticationMethod: 'LOCAL',
+          forcePasswordChange: Boolean(stored.forcePasswordChange)
         };
       }
     }
@@ -181,7 +259,8 @@ export class LocalAuthenticationProvider implements AuthenticationProvider {
         userId: stored.userId,
         userName: stored.userName,
         role: stored.role,
-        authenticationMethod: 'LOCAL'
+        authenticationMethod: 'LOCAL',
+        forcePasswordChange: Boolean(stored.forcePasswordChange)
       };
     }
     return null;
@@ -195,7 +274,8 @@ export class LocalAuthenticationProvider implements AuthenticationProvider {
         userId: stored.userId,
         userName: stored.userName,
         role: stored.role,
-        authenticationMethod: 'LOCAL'
+        authenticationMethod: 'LOCAL',
+        forcePasswordChange: Boolean(stored.forcePasswordChange)
       };
     }
     for (const u of this.users.values()) {
@@ -204,7 +284,8 @@ export class LocalAuthenticationProvider implements AuthenticationProvider {
           userId: u.userId,
           userName: u.userName,
           role: u.role,
-          authenticationMethod: 'LOCAL'
+          authenticationMethod: 'LOCAL',
+          forcePasswordChange: Boolean(u.forcePasswordChange)
         };
       }
     }

@@ -86,6 +86,10 @@ export interface TemplateRecord {
   unit?: 'mm' | 'in' | 'cm' | 'pt';
   orientation?: 'portrait' | 'landscape';
 
+  // Visual Thumbnail & Previews
+  thumbnail?: string; // Precomputed SVG string or Data URL
+  thumbnailSvg?: string; // Raw SVG markup
+
   // Metadata & Taxonomy
   tags: string[];
   favorite?: boolean;

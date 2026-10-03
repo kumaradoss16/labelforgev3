@@ -101,6 +101,7 @@ export interface SessionPrincipalInfo {
   role: string;
   authenticatedAt: number;
   expiresAt: number;
+  forcePasswordChange?: boolean;
 }
 
 export interface ElectronAPI {
@@ -152,8 +153,8 @@ export interface ElectronAPI {
   };
 
   auth: {
-    login(credentials: { username: string; password?: string; domain?: string }): Promise<{ success: boolean; principal?: SessionPrincipalInfo; error?: string }>;
-    login(userId: string, userName: string, role: string, credential: string): Promise<{ success: boolean; principal?: SessionPrincipalInfo; error?: string }>;
+    login(credentials: { username: string; password?: string; domain?: string }): Promise<{ success: boolean; principal?: SessionPrincipalInfo; requiresPasswordChange?: boolean; error?: string }>;
+    changePassword(data: { userId: string; oldPassword: string; newPassword: string }): Promise<{ success: boolean; error?: string }>;
     logout(): Promise<{ success: boolean }>;
     getSession(): Promise<SessionPrincipalInfo | null>;
     updateRole?(role: string, credentialToken?: string): Promise<{ success: boolean; error?: string }>;
